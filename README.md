@@ -5,11 +5,11 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 ## What this version does
 
 - Opens the real ComfyUI web interface inside an Android app.
-- Stores the ComfyUI URL locally.
-- Supports local network URLs such as `http://192.168.1.10:8188`.
-- Supports Tailscale URLs such as `http://100.x.x.x:8188`.
-- Enables JavaScript, DOM storage, zoom, file chooser, and cleartext HTTP.
-- Adds simple controls: Open, Reload, Home, and hide/show top bar.
+- Stores the ComfyUI URL locally on the phone.
+- Adds a connection setup screen with a `Test` button.
+- Tests ComfyUI by requesting `/system_stats` before opening the UI.
+- Supports Tailscale Serve URLs such as `http://desktop-name.tailnet-name.ts.net:8188`.
+- Enables JavaScript, DOM storage, zoom, mixed content, and cleartext HTTP.
 - Includes a GitHub Actions workflow to build a debug APK.
 
 ## What it does not do
@@ -18,20 +18,43 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not replace ComfyUI with a native mobile UI.
 - It does not make public exposure of ComfyUI safe.
 
-## Recommended ComfyUI launch on PC
+## Recommended connection mode
 
-```bash
-python main.py --listen 0.0.0.0 --port 8188
-```
-
-Then open one of these in the app:
+Recommended remote setup:
 
 ```text
-http://192.168.1.XX:8188
-http://100.x.x.x:8188
+Phone on mobile network
+→ Tailscale on Android
+→ Tailscale Serve on PC
+→ http://127.0.0.1:8000 on PC
+→ ComfyUI
 ```
 
-Use the `100.x.x.x` address with Tailscale.
+Start ComfyUI locally on the PC:
+
+```bash
+python main.py --listen 127.0.0.1 --port 8000
+```
+
+Expose it through Tailscale Serve:
+
+```bash
+tailscale serve --bg http://127.0.0.1:8000
+```
+
+Check the serve URL:
+
+```bash
+tailscale serve status
+```
+
+Then paste the shown tailnet URL into the Android app. It will usually look like this:
+
+```text
+http://desktop-name.tailnet-name.ts.net:8188
+```
+
+Do not commit your personal tailnet URL to this public repository. Store it only inside the app settings.
 
 ## Build APK
 
