@@ -5,9 +5,10 @@ import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
@@ -19,6 +20,9 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.net.HttpURLConnection;
+import java.net.URL;
+
 public class MainActivity extends Activity {
     private static final String PREFS_NAME = "comfyui_remote_prefs";
     private static final String KEY_URL = "comfyui_url";
@@ -28,15 +32,18 @@ public class MainActivity extends Activity {
     private ProgressBar progressBar;
     private TextView statusText;
     private LinearLayout topBar;
+    private Button testButton;
+    private Button openButton;
+    private Button reloadButton;
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
         configureWebView();
-
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        urlInput.setText(prefs.getString(KEY_URL, "http://100.x.x.x:8188"));
+        urlInput.setText(prefs.getString(KEY_URL, "http://desktop-name.tailnet.ts.net:8188"));
     }
 
     private void buildUi() {
@@ -46,24 +53,36 @@ public class MainActivity extends Activity {
         root.addView(column, new FrameLayout.LayoutParams(-1, -1));
 
         topBar = new LinearLayout(this);
-        topBar.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.setGravity(Gravity.CENTER_VERTICAL);
-        topBar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        topBar.setOrientation(LinearLayout.VERTICAL);
+        topBar.setPadding(dp(8), dp(8), dp(8), dp(6));
         column.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
+
+        TextView title = new TextView(this);
+        title.setText("ComfyUI connection");
+        title.setTextSize(18);
+        topBar.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
-        urlInput.setHint("http://100.x.x.x:8188");
-        urlInput.setTextSize(13);
-        topBar.addView(urlInput, new LinearLayout.LayoutParams(0, dp(44), 1));
+        urlInput.setHint("http://desktop-name.tailnet.ts.net:8188");
+        urlInput.setTextSize(14);
+        topBar.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(48)));
 
-        Button openButton = new Button(this);
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        topBar.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        testButton = new Button(this);
+        testButton.setText("Test");
+        row.addView(testButton, new LinearLayout.LayoutParams(0, dp(44), 1));
+
+        openButton = new Button(this);
         openButton.setText("Open");
-        topBar.addView(openButton, new LinearLayout.LayoutParams(dp(72), dp(44)));
+        row.addView(openButton, new LinearLayout.LayoutParams(0, dp(44), 1));
 
-        Button reloadButton = new Button(this);
+        reloadButton = new Button(this);
         reloadButton.setText("Reload");
-        topBar.addView(reloadButton, new LinearLayout.LayoutParams(dp(84), dp(44)));
+        row.addView(reloadButton, new LinearLayout.LayoutParams(0, dp(44), 1));
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
@@ -71,7 +90,7 @@ public class MainActivity extends Activity {
         column.addView(progressBar, new LinearLayout.LayoutParams(-1, dp(3)));
 
         statusText = new TextView(this);
-        statusText.setText("Enter ComfyUI URL and press Open.");
+        statusText.setText("Enter your Tailscale Serve URL, then press Test.");
         statusText.setTextSize(12);
         statusText.setPadding(dp(8), dp(4), dp(8), dp(4));
         column.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
@@ -81,11 +100,12 @@ public class MainActivity extends Activity {
 
         Button hideButton = new Button(this);
         hideButton.setText("Hide");
-        FrameLayout.LayoutParams hideParams = new FrameLayout.LayoutParams(dp(74), dp(48));
-        hideParams.gravity = Gravity.BOTTOM | Gravity.RIGHT;
-        hideParams.setMargins(0, 0, dp(10), dp(10));
-        root.addView(hideButton, hideParams);
+        FrameLayout.LayoutParams hp = new FrameLayout.LayoutParams(dp(74), dp(48));
+        hp.gravity = Gravity.BOTTOM | Gravity.RIGHT;
+        hp.setMargins(0, 0, dp(10), dp(10));
+        root.addView(hideButton, hp);
 
+        testButton.setOnClickListener(v -> testConnection());
         openButton.setOnClickListener(v -> openCurrentUrl());
         reloadButton.setOnClickListener(v -> webView.reload());
         hideButton.setOnClickListener(v -> {
@@ -100,18 +120,18 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     private void configureWebView() {
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setDatabaseEnabled(true);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setLoadWithOverviewMode(true);
-        settings.setUseWideViewPort(true);
-        settings.setBuiltInZoomControls(true);
-        settings.setDisplayZoomControls(false);
-        settings.setSupportZoom(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        WebSettings s = webView.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        s.setSupportZoom(true);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -129,9 +149,35 @@ public class MainActivity extends Activity {
         });
     }
 
-    private void injectViewport() {
-        String script = "(function(){var m=document.querySelector('meta[name=viewport]');if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}m.content='width=device-width,initial-scale=0.65,minimum-scale=0.25,maximum-scale=3,user-scalable=yes';})();";
-        webView.evaluateJavascript(script, null);
+    private void testConnection() {
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        saveUrl(base);
+        setBusy(true, "Testing /system_stats ...");
+        new Thread(() -> {
+            String message = checkSystemStats(base);
+            mainHandler.post(() -> setBusy(false, message));
+        }).start();
+    }
+
+    private String checkSystemStats(String base) {
+        HttpURLConnection c = null;
+        try {
+            URL url = new URL(base + "/system_stats");
+            c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(5000);
+            int code = c.getResponseCode();
+            if (code >= 200 && code < 300) return "Connection OK. Press Open.";
+            return "HTTP " + code + ". Check URL, port, or Tailscale Serve.";
+        } catch (Exception e) {
+            return "Connection failed: " + e.getClass().getSimpleName() + ". Check ComfyUI, Tailscale, and URL.";
+        } finally {
+            if (c != null) c.disconnect();
+        }
     }
 
     private void openCurrentUrl() {
@@ -140,15 +186,33 @@ public class MainActivity extends Activity {
             Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
             return;
         }
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).apply();
+        saveUrl(url);
         webView.loadUrl(url);
+    }
+
+    private void saveUrl(String url) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).apply();
     }
 
     private String getNormalizedUrl() {
         String raw = urlInput.getText().toString().trim();
         if (raw.isEmpty()) return "";
         if (!raw.startsWith("http://") && !raw.startsWith("https://")) raw = "http://" + raw;
+        while (raw.endsWith("/")) raw = raw.substring(0, raw.length() - 1);
         return raw;
+    }
+
+    private void setBusy(boolean busy, String message) {
+        progressBar.setVisibility(busy ? View.VISIBLE : View.GONE);
+        testButton.setEnabled(!busy);
+        openButton.setEnabled(!busy);
+        reloadButton.setEnabled(!busy);
+        statusText.setText(message);
+    }
+
+    private void injectViewport() {
+        String script = "(function(){var m=document.querySelector('meta[name=viewport]');if(!m){m=document.createElement('meta');m.name='viewport';document.head.appendChild(m);}m.content='width=device-width,initial-scale=0.65,minimum-scale=0.25,maximum-scale=3,user-scalable=yes';})();";
+        webView.evaluateJavascript(script, null);
     }
 
     @Override
