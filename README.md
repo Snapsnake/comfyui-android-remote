@@ -14,6 +14,7 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
   - fullscreen immersive mode;
   - compact bottom toolbar with `Run`, `Reload`, `Fit`, zoom in, zoom out, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
+  - left `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -22,7 +23,7 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not run ComfyUI on Android.
 - It does not replace ComfyUI with a native mobile UI.
 - It does not make public exposure of ComfyUI safe.
-- It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar is a first usability layer over the existing desktop ComfyUI frontend.
+- It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar and node drawer are a first usability layer over the existing desktop ComfyUI frontend.
 
 ## Recommended connection mode
 
@@ -73,7 +74,18 @@ After pressing `Open`, the connection panel is hidden and the app shows a compac
 - `Menu` shows or hides the connection panel.
 - The small floating button hides or shows the bottom toolbar.
 
-These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons in the loaded ComfyUI frontend.
+There is also a left-side `Nodes` button. It opens a native drawer that reads `window.app.graph` from the loaded ComfyUI frontend and shows:
+
+- node id;
+- node title;
+- node type;
+- widgets and their current values;
+- inputs;
+- outputs.
+
+Tap a node in the drawer to expand or collapse its details. The drawer is read-only in this version.
+
+These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read the current in-browser graph from the loaded ComfyUI frontend.
 
 ## Build APK
 
