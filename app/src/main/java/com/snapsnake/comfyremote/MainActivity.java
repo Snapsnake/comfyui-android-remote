@@ -24,8 +24,13 @@ import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -41,7 +46,10 @@ public class MainActivity extends Activity {
     private TextView statusText;
     private LinearLayout topBar;
     private LinearLayout mobileToolbar;
+    private LinearLayout nodeDrawer;
+    private LinearLayout nodeList;
     private Button chromeButton;
+    private Button nodesButton;
     private Button testButton;
     private Button openButton;
     private Button reloadButton;
@@ -114,6 +122,51 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         column.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        nodeDrawer = new LinearLayout(this);
+        nodeDrawer.setOrientation(LinearLayout.VERTICAL);
+        nodeDrawer.setPadding(dp(10), dp(10), dp(10), dp(10));
+        nodeDrawer.setVisibility(View.GONE);
+        nodeDrawer.setBackground(drawerBackground());
+
+        LinearLayout drawerHeader = new LinearLayout(this);
+        drawerHeader.setOrientation(LinearLayout.HORIZONTAL);
+        drawerHeader.setGravity(Gravity.CENTER_VERTICAL);
+        nodeDrawer.addView(drawerHeader, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        TextView drawerTitle = new TextView(this);
+        drawerTitle.setText("Nodes");
+        drawerTitle.setTextColor(Color.WHITE);
+        drawerTitle.setTextSize(20);
+        drawerTitle.setGravity(Gravity.CENTER_VERTICAL);
+        drawerHeader.addView(drawerTitle, new LinearLayout.LayoutParams(0, -1, 1));
+
+        Button refreshNodes = makeSmallDrawerButton("↻");
+        drawerHeader.addView(refreshNodes, new LinearLayout.LayoutParams(dp(48), dp(44)));
+
+        Button closeNodes = makeSmallDrawerButton("×");
+        drawerHeader.addView(closeNodes, new LinearLayout.LayoutParams(dp(48), dp(44)));
+
+        TextView drawerHint = new TextView(this);
+        drawerHint.setText("Tap a node to expand its fields.");
+        drawerHint.setTextColor(Color.rgb(156, 163, 175));
+        drawerHint.setTextSize(13);
+        drawerHint.setPadding(0, 0, 0, dp(8));
+        nodeDrawer.addView(drawerHint, new LinearLayout.LayoutParams(-1, -2));
+
+        ScrollView nodeScroll = new ScrollView(this);
+        nodeScroll.setFillViewport(false);
+        nodeScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        nodeList = new LinearLayout(this);
+        nodeList.setOrientation(LinearLayout.VERTICAL);
+        nodeScroll.addView(nodeList, new ScrollView.LayoutParams(-1, -2));
+        nodeDrawer.addView(nodeScroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        int drawerWidth = Math.min(dp(360), Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(56)));
+        FrameLayout.LayoutParams ndp = new FrameLayout.LayoutParams(drawerWidth, -1);
+        ndp.gravity = Gravity.LEFT;
+        ndp.setMargins(0, 0, 0, dp(76));
+        root.addView(nodeDrawer, ndp);
+
         mobileToolbar = new LinearLayout(this);
         mobileToolbar.setOrientation(LinearLayout.HORIZONTAL);
         mobileToolbar.setGravity(Gravity.CENTER);
@@ -140,6 +193,13 @@ public class MainActivity extends Activity {
         mp.setMargins(dp(8), 0, dp(8), dp(8));
         root.addView(mobileToolbar, mp);
 
+        nodesButton = makeSideButton("Nodes");
+        nodesButton.setVisibility(View.GONE);
+        FrameLayout.LayoutParams nbp = new FrameLayout.LayoutParams(dp(76), dp(48));
+        nbp.gravity = Gravity.LEFT | Gravity.CENTER_VERTICAL;
+        nbp.setMargins(dp(8), 0, 0, 0);
+        root.addView(nodesButton, nbp);
+
         chromeButton = makeMiniButton("⋮");
         FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(46), dp(46));
         cp.gravity = Gravity.RIGHT | Gravity.BOTTOM;
@@ -157,6 +217,9 @@ public class MainActivity extends Activity {
         zoomIn.setOnClickListener(v -> webView.zoomIn());
         menu.setOnClickListener(v -> toggleConnectionPanel());
         chromeButton.setOnClickListener(v -> toggleMobileToolbar());
+        nodesButton.setOnClickListener(v -> toggleNodeDrawer());
+        refreshNodes.setOnClickListener(v -> refreshNodeDrawer());
+        closeNodes.setOnClickListener(v -> hideNodeDrawer());
 
         setContentView(root);
     }
@@ -201,6 +264,28 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private Button makeSideButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(13);
+        b.setTextColor(Color.WHITE);
+        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setBackground(buttonBackground(Color.argb(235, 30, 64, 175), dp(18)));
+        return b;
+    }
+
+    private Button makeSmallDrawerButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(20);
+        b.setTextColor(Color.WHITE);
+        b.setPadding(0, 0, 0, 0);
+        b.setBackground(buttonBackground(Color.rgb(31, 41, 55), dp(12)));
+        return b;
+    }
+
     private GradientDrawable buttonBackground(int color, int radius) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
@@ -213,6 +298,13 @@ public class MainActivity extends Activity {
         d.setColor(Color.argb(235, 17, 24, 39));
         d.setCornerRadius(dp(22));
         d.setStroke(dp(1), Color.argb(180, 75, 85, 99));
+        return d;
+    }
+
+    private GradientDrawable drawerBackground() {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(Color.argb(246, 15, 23, 42));
+        d.setStroke(dp(1), Color.argb(220, 71, 85, 105));
         return d;
     }
 
@@ -333,6 +425,7 @@ public class MainActivity extends Activity {
         statusText.setVisibility(View.GONE);
         mobileToolbar.setVisibility(View.VISIBLE);
         chromeButton.setVisibility(View.VISIBLE);
+        nodesButton.setVisibility(View.VISIBLE);
         enterImmersiveMode();
     }
 
@@ -348,6 +441,162 @@ public class MainActivity extends Activity {
         mobileToolbar.setVisibility(visible ? View.GONE : View.VISIBLE);
         chromeButton.setText(visible ? "☰" : "⋮");
         enterImmersiveMode();
+    }
+
+    private void toggleNodeDrawer() {
+        if (nodeDrawer.getVisibility() == View.VISIBLE) {
+            hideNodeDrawer();
+        } else {
+            nodeDrawer.setVisibility(View.VISIBLE);
+            nodesButton.setVisibility(View.GONE);
+            refreshNodeDrawer();
+        }
+        enterImmersiveMode();
+    }
+
+    private void hideNodeDrawer() {
+        nodeDrawer.setVisibility(View.GONE);
+        nodesButton.setVisibility(View.VISIBLE);
+        enterImmersiveMode();
+    }
+
+    private void refreshNodeDrawer() {
+        nodeList.removeAllViews();
+        addDrawerMessage("Reading workflow nodes...", false);
+        injectMobileLayer();
+        webView.evaluateJavascript(getNodeListScript(), this::renderNodeDrawer);
+    }
+
+    private void renderNodeDrawer(String value) {
+        nodeList.removeAllViews();
+        try {
+            if (value == null || "null".equals(value)) {
+                addDrawerMessage("Could not read nodes. Open a workflow first.", true);
+                return;
+            }
+            JSONArray nodes = new JSONArray(value);
+            if (nodes.length() == 0) {
+                addDrawerMessage("No nodes found in the current graph.", true);
+                return;
+            }
+            for (int i = 0; i < nodes.length(); i++) {
+                addNodeCard(nodes.getJSONObject(i), i + 1);
+            }
+        } catch (JSONException e) {
+            addDrawerMessage("Could not parse ComfyUI node list.", true);
+        } finally {
+            enterImmersiveMode();
+        }
+    }
+
+    private void addNodeCard(JSONObject node, int index) throws JSONException {
+        int id = node.optInt("id", -1);
+        String title = clean(node.optString("title", "Untitled"));
+        String type = clean(node.optString("type", ""));
+        JSONArray widgets = node.optJSONArray("widgets");
+        JSONArray inputs = node.optJSONArray("inputs");
+        JSONArray outputs = node.optJSONArray("outputs");
+
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(8), dp(8), dp(8), dp(8));
+        card.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(14)));
+        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
+        cardParams.setMargins(0, 0, 0, dp(8));
+        nodeList.addView(card, cardParams);
+
+        Button header = makeNodeHeaderButton(index + ". #" + id + "  " + title);
+        card.addView(header, new LinearLayout.LayoutParams(-1, dp(48)));
+
+        TextView meta = makeDrawerText(type.isEmpty() ? "type: unknown" : "type: " + type, 13, Color.rgb(148, 163, 184));
+        meta.setPadding(dp(4), dp(4), dp(4), dp(8));
+        card.addView(meta, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setVisibility(View.GONE);
+        details.setPadding(dp(4), dp(6), dp(4), 0);
+        card.addView(details, new LinearLayout.LayoutParams(-1, -2));
+
+        if (widgets != null && widgets.length() > 0) {
+            details.addView(makeDrawerText("Widgets", 14, Color.WHITE));
+            for (int i = 0; i < widgets.length(); i++) {
+                JSONObject w = widgets.getJSONObject(i);
+                String name = clean(w.optString("name", "widget"));
+                String wType = clean(w.optString("type", ""));
+                String wValue = clean(w.optString("value", ""));
+                details.addView(makeDrawerText("• " + name + (wType.isEmpty() ? "" : " [" + wType + "]") + " = " + wValue, 13, Color.rgb(203, 213, 225)));
+            }
+        } else {
+            details.addView(makeDrawerText("No widgets", 13, Color.rgb(148, 163, 184)));
+        }
+
+        if (inputs != null && inputs.length() > 0) {
+            details.addView(makeDrawerText("\nInputs", 14, Color.WHITE));
+            for (int i = 0; i < inputs.length(); i++) {
+                JSONObject input = inputs.getJSONObject(i);
+                details.addView(makeDrawerText("• " + clean(input.optString("name", "input")) + " : " + clean(input.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+            }
+        }
+
+        if (outputs != null && outputs.length() > 0) {
+            details.addView(makeDrawerText("\nOutputs", 14, Color.WHITE));
+            for (int i = 0; i < outputs.length(); i++) {
+                JSONObject output = outputs.getJSONObject(i);
+                details.addView(makeDrawerText("• " + clean(output.optString("name", "output")) + " : " + clean(output.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+            }
+        }
+
+        header.setOnClickListener(v -> {
+            details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            enterImmersiveMode();
+        });
+    }
+
+    private Button makeNodeHeaderButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        b.setTextSize(14);
+        b.setTextColor(Color.WHITE);
+        b.setPadding(dp(10), 0, dp(10), 0);
+        b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(12)));
+        return b;
+    }
+
+    private TextView makeDrawerText(String text, int size, int color) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextSize(size);
+        t.setTextColor(color);
+        t.setPadding(dp(4), dp(3), dp(4), dp(3));
+        return t;
+    }
+
+    private void addDrawerMessage(String text, boolean error) {
+        TextView message = makeDrawerText(text, 15, error ? Color.rgb(248, 113, 113) : Color.rgb(203, 213, 225));
+        message.setPadding(dp(6), dp(10), dp(6), dp(10));
+        nodeList.addView(message, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private String clean(String value) {
+        if (value == null) return "";
+        String s = value.replace('\n', ' ').replace('\r', ' ').trim();
+        if (s.length() > 140) s = s.substring(0, 137) + "...";
+        return s;
+    }
+
+    private String getNodeListScript() {
+        return "(function(){"
+                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
+                + "var nodes=(graph&&(graph._nodes||graph.nodes))||[];"
+                + "return nodes.map(function(n){"
+                + "function text(v){if(v===undefined||v===null)return '';try{return String(v);}catch(e){return '';}}"
+                + "function list(items){return (items||[]).map(function(x){return {name:text(x&&x.name),type:text(x&&x.type)};});}"
+                + "return {id:n.id||0,title:text(n.title||n.type||'Untitled'),type:text(n.type||''),widgets:(n.widgets||[]).map(function(w){return {name:text(w&&w.name),type:text(w&&w.type),value:text(w&&w.value)};}),inputs:list(n.inputs),outputs:list(n.outputs)};"
+                + "});"
+                + "})();";
     }
 
     private void saveUrl(String url) {
@@ -455,7 +704,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (topBar.getVisibility() != View.VISIBLE && webView != null && !webView.canGoBack()) {
+        if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
+            hideNodeDrawer();
+        } else if (topBar.getVisibility() != View.VISIBLE && webView != null && !webView.canGoBack()) {
             toggleConnectionPanel();
         } else if (webView != null && webView.canGoBack()) {
             webView.goBack();
