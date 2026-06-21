@@ -9,7 +9,12 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - Adds a connection setup screen with a `Test` button.
 - Tests ComfyUI by requesting `/system_stats` before opening the UI.
 - Supports Tailscale Serve URLs such as `http://desktop-name.tailnet-name.ts.net:8188`.
-- Enables JavaScript, DOM storage, zoom, mixed content, and cleartext HTTP.
+- Enables JavaScript, DOM storage, zoom, mixed content, cleartext HTTP, and Android file upload from WebView.
+- Adds a basic mobile workspace layer after opening ComfyUI:
+  - fullscreen immersive mode;
+  - compact bottom toolbar with `Run`, `Reload`, `Fit`, zoom in, zoom out, and `Menu`;
+  - small floating toolbar toggle instead of a large `Hide` button;
+  - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
 ## What it does not do
@@ -17,6 +22,7 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not run ComfyUI on Android.
 - It does not replace ComfyUI with a native mobile UI.
 - It does not make public exposure of ComfyUI safe.
+- It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar is a first usability layer over the existing desktop ComfyUI frontend.
 
 ## Recommended connection mode
 
@@ -55,6 +61,19 @@ http://desktop-name.tailnet-name.ts.net:8188
 ```
 
 Do not commit your personal tailnet URL to this public repository. Store it only inside the app settings.
+
+## Mobile controls
+
+After pressing `Open`, the connection panel is hidden and the app shows a compact bottom toolbar:
+
+- `Run` tries to press the visible ComfyUI run/queue/generate button.
+- `Reload` reloads the current ComfyUI page.
+- `Fit` tries to trigger the ComfyUI fit/reset-view action.
+- `−` and `+` use Android WebView zoom.
+- `Menu` shows or hides the connection panel.
+- The small floating button hides or shows the bottom toolbar.
+
+These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons in the loaded ComfyUI frontend.
 
 ## Build APK
 
