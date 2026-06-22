@@ -12,9 +12,9 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - Enables JavaScript, DOM storage, zoom, mixed content, cleartext HTTP, and Android file upload from WebView.
 - Adds a basic mobile workspace layer after opening ComfyUI:
   - fullscreen immersive mode;
-  - compact bottom toolbar with `Run`, `Reload`, `Fit`, zoom in, zoom out, and `Menu`;
+  - compact bottom toolbar with `Nodes`, `Run`, `Fit`, zoom in, zoom out, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
-  - left `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
+  - native `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -67,14 +67,14 @@ Do not commit your personal tailnet URL to this public repository. Store it only
 
 After pressing `Open`, the connection panel is hidden and the app shows a compact bottom toolbar:
 
+- `Nodes` opens a native drawer with the current workflow nodes.
 - `Run` tries to press the visible ComfyUI run/queue/generate button.
-- `Reload` reloads the current ComfyUI page.
 - `Fit` tries to trigger the ComfyUI fit/reset-view action.
 - `−` and `+` use Android WebView zoom.
 - `Menu` shows or hides the connection panel.
 - The small floating button hides or shows the bottom toolbar.
 
-There is also a left-side `Nodes` button. It opens a native drawer that reads `window.app.graph` from the loaded ComfyUI frontend and shows:
+The `Nodes` drawer reads `window.app.graph` from the loaded ComfyUI frontend and shows:
 
 - node id;
 - node title;
