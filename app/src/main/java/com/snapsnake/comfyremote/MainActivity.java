@@ -49,7 +49,6 @@ public class MainActivity extends Activity {
     private LinearLayout nodeDrawer;
     private LinearLayout nodeList;
     private Button chromeButton;
-    private Button nodesButton;
     private Button testButton;
     private Button openButton;
     private Button reloadButton;
@@ -122,6 +121,24 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         column.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
 
+        buildNodeDrawer(root);
+        buildMobileToolbar(root);
+
+        chromeButton = makeMiniButton("⋮");
+        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(46), dp(46));
+        cp.gravity = Gravity.RIGHT | Gravity.BOTTOM;
+        cp.setMargins(0, 0, dp(12), dp(78));
+        root.addView(chromeButton, cp);
+
+        testButton.setOnClickListener(v -> testConnection());
+        openButton.setOnClickListener(v -> openCurrentUrl());
+        reloadButton.setOnClickListener(v -> webView.reload());
+        chromeButton.setOnClickListener(v -> toggleMobileToolbar());
+
+        setContentView(root);
+    }
+
+    private void buildNodeDrawer(FrameLayout root) {
         nodeDrawer = new LinearLayout(this);
         nodeDrawer.setOrientation(LinearLayout.VERTICAL);
         nodeDrawer.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -167,6 +184,11 @@ public class MainActivity extends Activity {
         ndp.setMargins(0, 0, 0, dp(76));
         root.addView(nodeDrawer, ndp);
 
+        refreshNodes.setOnClickListener(v -> refreshNodeDrawer());
+        closeNodes.setOnClickListener(v -> hideNodeDrawer());
+    }
+
+    private void buildMobileToolbar(FrameLayout root) {
         mobileToolbar = new LinearLayout(this);
         mobileToolbar.setOrientation(LinearLayout.HORIZONTAL);
         mobileToolbar.setGravity(Gravity.CENTER);
@@ -174,15 +196,15 @@ public class MainActivity extends Activity {
         mobileToolbar.setVisibility(View.GONE);
         mobileToolbar.setBackground(toolbarBackground());
 
+        Button nodes = makeToolbarButton("Nodes");
         Button run = makeToolbarButton("Run");
-        Button reload = makeToolbarButton("Reload");
         Button fit = makeToolbarButton("Fit");
         Button zoomOut = makeToolbarButton("−");
         Button zoomIn = makeToolbarButton("+");
         Button menu = makeToolbarButton("Menu");
 
+        mobileToolbar.addView(nodes, toolbarButtonParams());
         mobileToolbar.addView(run, toolbarButtonParams());
-        mobileToolbar.addView(reload, toolbarButtonParams());
         mobileToolbar.addView(fit, toolbarButtonParams());
         mobileToolbar.addView(zoomOut, toolbarButtonParams());
         mobileToolbar.addView(zoomIn, toolbarButtonParams());
@@ -193,35 +215,12 @@ public class MainActivity extends Activity {
         mp.setMargins(dp(8), 0, dp(8), dp(8));
         root.addView(mobileToolbar, mp);
 
-        nodesButton = makeSideButton("Nodes");
-        nodesButton.setVisibility(View.GONE);
-        FrameLayout.LayoutParams nbp = new FrameLayout.LayoutParams(dp(76), dp(48));
-        nbp.gravity = Gravity.LEFT | Gravity.CENTER_VERTICAL;
-        nbp.setMargins(dp(8), 0, 0, 0);
-        root.addView(nodesButton, nbp);
-
-        chromeButton = makeMiniButton("⋮");
-        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(46), dp(46));
-        cp.gravity = Gravity.RIGHT | Gravity.BOTTOM;
-        cp.setMargins(0, 0, dp(12), dp(78));
-        root.addView(chromeButton, cp);
-
-        testButton.setOnClickListener(v -> testConnection());
-        openButton.setOnClickListener(v -> openCurrentUrl());
-        reloadButton.setOnClickListener(v -> webView.reload());
-
+        nodes.setOnClickListener(v -> toggleNodeDrawer());
         run.setOnClickListener(v -> runComfyQueue());
-        reload.setOnClickListener(v -> webView.reload());
         fit.setOnClickListener(v -> fitComfyCanvas());
         zoomOut.setOnClickListener(v -> webView.zoomOut());
         zoomIn.setOnClickListener(v -> webView.zoomIn());
         menu.setOnClickListener(v -> toggleConnectionPanel());
-        chromeButton.setOnClickListener(v -> toggleMobileToolbar());
-        nodesButton.setOnClickListener(v -> toggleNodeDrawer());
-        refreshNodes.setOnClickListener(v -> refreshNodeDrawer());
-        closeNodes.setOnClickListener(v -> hideNodeDrawer());
-
-        setContentView(root);
     }
 
     private LinearLayout.LayoutParams toolbarButtonParams() {
@@ -261,17 +260,6 @@ public class MainActivity extends Activity {
         b.setTextColor(Color.WHITE);
         b.setPadding(0, 0, 0, 0);
         b.setBackground(buttonBackground(Color.argb(220, 31, 41, 55), dp(23)));
-        return b;
-    }
-
-    private Button makeSideButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTextColor(Color.WHITE);
-        b.setPadding(dp(4), 0, dp(4), 0);
-        b.setBackground(buttonBackground(Color.argb(235, 30, 64, 175), dp(18)));
         return b;
     }
 
@@ -329,11 +317,7 @@ public class MainActivity extends Activity {
 
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
-            public boolean onShowFileChooser(
-                    WebView view,
-                    ValueCallback<Uri[]> filePathCallback,
-                    FileChooserParams fileChooserParams
-            ) {
+            public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> filePathCallback, FileChooserParams fileChooserParams) {
                 if (MainActivity.this.filePathCallback != null) {
                     MainActivity.this.filePathCallback.onReceiveValue(null);
                 }
@@ -425,7 +409,6 @@ public class MainActivity extends Activity {
         statusText.setVisibility(View.GONE);
         mobileToolbar.setVisibility(View.VISIBLE);
         chromeButton.setVisibility(View.VISIBLE);
-        nodesButton.setVisibility(View.VISIBLE);
         enterImmersiveMode();
     }
 
@@ -448,7 +431,6 @@ public class MainActivity extends Activity {
             hideNodeDrawer();
         } else {
             nodeDrawer.setVisibility(View.VISIBLE);
-            nodesButton.setVisibility(View.GONE);
             refreshNodeDrawer();
         }
         enterImmersiveMode();
@@ -456,7 +438,6 @@ public class MainActivity extends Activity {
 
     private void hideNodeDrawer() {
         nodeDrawer.setVisibility(View.GONE);
-        nodesButton.setVisibility(View.VISIBLE);
         enterImmersiveMode();
     }
 
