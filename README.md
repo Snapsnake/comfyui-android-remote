@@ -15,6 +15,8 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
   - compact bottom toolbar with `Nodes`, `Run`, `Fit`, zoom in, zoom out, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
   - native `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
+  - editable widget fields in the `Nodes` drawer;
+  - `Focus` action to select and center a node on the canvas;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -24,6 +26,7 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not replace ComfyUI with a native mobile UI.
 - It does not make public exposure of ComfyUI safe.
 - It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar and node drawer are a first usability layer over the existing desktop ComfyUI frontend.
+- It does not guarantee that every custom node widget can be edited safely. Some custom widgets may need node-specific handling.
 
 ## Recommended connection mode
 
@@ -79,13 +82,13 @@ The `Nodes` drawer reads `window.app.graph` from the loaded ComfyUI frontend and
 - node id;
 - node title;
 - node type;
-- widgets and their current values;
+- editable widgets and their current values;
 - inputs;
 - outputs.
 
-Tap a node in the drawer to expand or collapse its details. The drawer is read-only in this version.
+Tap a node in the drawer to expand or collapse its details. Press `Focus` to select and center that node on the canvas. Change a widget value and press `Apply` to write it back into the loaded ComfyUI graph.
 
-These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read the current in-browser graph from the loaded ComfyUI frontend.
+These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read/write the current in-browser graph from the loaded ComfyUI frontend.
 
 ## Build APK
 
