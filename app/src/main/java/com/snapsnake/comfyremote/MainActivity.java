@@ -143,6 +143,7 @@ public class MainActivity extends Activity {
         nodeDrawer.setOrientation(LinearLayout.VERTICAL);
         nodeDrawer.setPadding(dp(10), dp(10), dp(10), dp(10));
         nodeDrawer.setVisibility(View.GONE);
+        nodeDrawer.setClickable(true);
         nodeDrawer.setBackground(drawerBackground());
 
         LinearLayout drawerHeader = new LinearLayout(this);
@@ -164,7 +165,7 @@ public class MainActivity extends Activity {
         drawerHeader.addView(closeNodes, new LinearLayout.LayoutParams(dp(48), dp(44)));
 
         TextView drawerHint = new TextView(this);
-        drawerHint.setText("Tap a node to expand its fields.");
+        drawerHint.setText("Tap a node to expand. Edit widget values and press Apply.");
         drawerHint.setTextColor(Color.rgb(156, 163, 175));
         drawerHint.setTextSize(13);
         drawerHint.setPadding(0, 0, 0, dp(8));
@@ -178,10 +179,10 @@ public class MainActivity extends Activity {
         nodeScroll.addView(nodeList, new ScrollView.LayoutParams(-1, -2));
         nodeDrawer.addView(nodeScroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        int drawerWidth = Math.min(dp(360), Math.max(dp(280), getResources().getDisplayMetrics().widthPixels - dp(56)));
+        int drawerWidth = Math.min(dp(390), Math.max(dp(300), getResources().getDisplayMetrics().widthPixels - dp(36)));
         FrameLayout.LayoutParams ndp = new FrameLayout.LayoutParams(drawerWidth, -1);
         ndp.gravity = Gravity.LEFT;
-        ndp.setMargins(0, 0, 0, dp(76));
+        ndp.setMargins(0, 0, 0, 0);
         root.addView(nodeDrawer, ndp);
 
         refreshNodes.setOnClickListener(v -> refreshNodeDrawer());
@@ -274,6 +275,17 @@ public class MainActivity extends Activity {
         return b;
     }
 
+    private Button makeTinyActionButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setTextSize(12);
+        b.setTextColor(Color.WHITE);
+        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(10)));
+        return b;
+    }
+
     private GradientDrawable buttonBackground(int color, int radius) {
         GradientDrawable d = new GradientDrawable();
         d.setColor(color);
@@ -291,7 +303,7 @@ public class MainActivity extends Activity {
 
     private GradientDrawable drawerBackground() {
         GradientDrawable d = new GradientDrawable();
-        d.setColor(Color.argb(246, 15, 23, 42));
+        d.setColor(Color.argb(248, 15, 23, 42));
         d.setStroke(dp(1), Color.argb(220, 71, 85, 105));
         return d;
     }
@@ -431,6 +443,8 @@ public class MainActivity extends Activity {
             hideNodeDrawer();
         } else {
             nodeDrawer.setVisibility(View.VISIBLE);
+            mobileToolbar.setVisibility(View.GONE);
+            chromeButton.setVisibility(View.GONE);
             refreshNodeDrawer();
         }
         enterImmersiveMode();
@@ -438,6 +452,8 @@ public class MainActivity extends Activity {
 
     private void hideNodeDrawer() {
         nodeDrawer.setVisibility(View.GONE);
+        mobileToolbar.setVisibility(View.VISIBLE);
+        chromeButton.setVisibility(View.VISIBLE);
         enterImmersiveMode();
     }
 
@@ -486,8 +502,18 @@ public class MainActivity extends Activity {
         cardParams.setMargins(0, 0, 0, dp(8));
         nodeList.addView(card, cardParams);
 
+        LinearLayout headerRow = new LinearLayout(this);
+        headerRow.setOrientation(LinearLayout.HORIZONTAL);
+        headerRow.setGravity(Gravity.CENTER_VERTICAL);
+        card.addView(headerRow, new LinearLayout.LayoutParams(-1, dp(48)));
+
         Button header = makeNodeHeaderButton(index + ". #" + id + "  " + title);
-        card.addView(header, new LinearLayout.LayoutParams(-1, dp(48)));
+        headerRow.addView(header, new LinearLayout.LayoutParams(0, -1, 1));
+
+        Button focus = makeTinyActionButton("Focus");
+        LinearLayout.LayoutParams focusParams = new LinearLayout.LayoutParams(dp(70), -1);
+        focusParams.setMargins(dp(6), 0, 0, 0);
+        headerRow.addView(focus, focusParams);
 
         TextView meta = makeDrawerText(type.isEmpty() ? "type: unknown" : "type: " + type, 13, Color.rgb(148, 163, 184));
         meta.setPadding(dp(4), dp(4), dp(4), dp(8));
@@ -503,10 +529,10 @@ public class MainActivity extends Activity {
             details.addView(makeDrawerText("Widgets", 14, Color.WHITE));
             for (int i = 0; i < widgets.length(); i++) {
                 JSONObject w = widgets.getJSONObject(i);
-                String name = clean(w.optString("name", "widget"));
+                String name = clean(w.optString("name", "widget_" + i));
                 String wType = clean(w.optString("type", ""));
-                String wValue = clean(w.optString("value", ""));
-                details.addView(makeDrawerText("• " + name + (wType.isEmpty() ? "" : " [" + wType + "]") + " = " + wValue, 13, Color.rgb(203, 213, 225)));
+                String wValue = w.optString("value", "");
+                addWidgetEditor(details, id, i, name, wType, wValue);
             }
         } else {
             details.addView(makeDrawerText("No widgets", 13, Color.rgb(148, 163, 184)));
@@ -532,6 +558,39 @@ public class MainActivity extends Activity {
             details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             enterImmersiveMode();
         });
+        focus.setOnClickListener(v -> focusNode(id));
+    }
+
+    private void addWidgetEditor(LinearLayout details, int nodeId, int widgetIndex, String name, String type, String value) {
+        TextView label = makeDrawerText("• " + name + (type.isEmpty() ? "" : " [" + type + "]"), 13, Color.rgb(203, 213, 225));
+        label.setPadding(dp(4), dp(8), dp(4), dp(2));
+        details.addView(label, new LinearLayout.LayoutParams(-1, -2));
+
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        details.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
+        EditText valueInput = new EditText(this);
+        valueInput.setText(value);
+        valueInput.setTextSize(13);
+        valueInput.setTextColor(Color.WHITE);
+        valueInput.setHintTextColor(Color.rgb(148, 163, 184));
+        valueInput.setPadding(dp(8), 0, dp(8), 0);
+        valueInput.setSingleLine(value.length() < 60 && !value.contains("\n"));
+        if (value.length() >= 60 || value.contains("\n")) {
+            valueInput.setMinLines(2);
+            valueInput.setMaxLines(5);
+        }
+        valueInput.setBackground(buttonBackground(Color.rgb(15, 23, 42), dp(10)));
+        row.addView(valueInput, new LinearLayout.LayoutParams(0, -2, 1));
+
+        Button apply = makeTinyActionButton("Apply");
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(74), dp(46));
+        applyParams.setMargins(dp(6), 0, 0, 0);
+        row.addView(apply, applyParams);
+
+        apply.setOnClickListener(v -> applyWidgetValue(nodeId, widgetIndex, valueInput.getText().toString()));
     }
 
     private Button makeNodeHeaderButton(String text) {
@@ -568,6 +627,10 @@ public class MainActivity extends Activity {
         return s;
     }
 
+    private String jsString(String value) {
+        return JSONObject.quote(value == null ? "" : value);
+    }
+
     private String getNodeListScript() {
         return "(function(){"
                 + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
@@ -578,6 +641,55 @@ public class MainActivity extends Activity {
                 + "return {id:n.id||0,title:text(n.title||n.type||'Untitled'),type:text(n.type||''),widgets:(n.widgets||[]).map(function(w){return {name:text(w&&w.name),type:text(w&&w.type),value:text(w&&w.value)};}),inputs:list(n.inputs),outputs:list(n.outputs)};"
                 + "});"
                 + "})();";
+    }
+
+    private void focusNode(int nodeId) {
+        String script = "(function(){"
+                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
+                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
+                + "if(!graph||!canvas)return false;"
+                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
+                + "if(!n)return false;"
+                + "try{canvas.selectNode&&canvas.selectNode(n);}catch(e){}"
+                + "try{if(canvas.ds&&n.pos){var scale=canvas.ds.scale||1;var size=n.size||[260,120];canvas.ds.offset[0]=(canvas.canvas.width/2)/scale-n.pos[0]-size[0]/2;canvas.ds.offset[1]=(canvas.canvas.height/2)/scale-n.pos[1]-size[1]/2;}}catch(e){}"
+                + "try{canvas.setDirty&&canvas.setDirty(true,true);}catch(e){}"
+                + "return true;"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if (!"true".equals(value)) {
+                Toast.makeText(this, "Could not focus node", Toast.LENGTH_SHORT).show();
+            }
+        });
+        enterImmersiveMode();
+    }
+
+    private void applyWidgetValue(int nodeId, int widgetIndex, String rawValue) {
+        String script = "(function(){"
+                + "var raw=" + jsString(rawValue) + ";"
+                + "var value=raw;"
+                + "if(raw==='true')value=true;else if(raw==='false')value=false;else if(raw!==''&&!isNaN(Number(raw)))value=Number(raw);"
+                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
+                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
+                + "if(!graph)return false;"
+                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
+                + "if(!n||!n.widgets||!n.widgets[" + widgetIndex + "])return false;"
+                + "var w=n.widgets[" + widgetIndex + "];"
+                + "w.value=value;"
+                + "try{if(w.callback)w.callback.call(w,value,canvas,n,n.pos||[0,0],null);}catch(e){}"
+                + "try{if(n.onWidgetChanged)n.onWidgetChanged(w.name,value,w);}catch(e){}"
+                + "try{if(canvas&&canvas.setDirty)canvas.setDirty(true,true);}catch(e){}"
+                + "try{if(graph.setDirtyCanvas)graph.setDirtyCanvas(true,true);}catch(e){}"
+                + "return true;"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if ("true".equals(value)) {
+                Toast.makeText(this, "Applied", Toast.LENGTH_SHORT).show();
+                refreshNodeDrawer();
+            } else {
+                Toast.makeText(this, "Could not apply widget value", Toast.LENGTH_SHORT).show();
+            }
+        });
+        enterImmersiveMode();
     }
 
     private void saveUrl(String url) {
