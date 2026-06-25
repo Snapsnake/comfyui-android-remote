@@ -2,6 +2,7 @@ package com.snapsnake.comfyremote;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -20,6 +21,7 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -38,6 +40,13 @@ import java.net.URL;
 public class MainActivity extends Activity {
     private static final String PREFS_NAME = "comfyui_remote_prefs";
     private static final String KEY_URL = "comfyui_url";
+    private static final String KEY_OPEN_PARAMS_DEFAULT = "open_params_default";
+    private static final String KEY_SHOW_ONLY_EDITABLE = "show_only_editable";
+    private static final String KEY_HIDE_TECHNICAL = "hide_technical_fields";
+    private static final String KEY_COMPACT_CARDS = "compact_cards";
+    private static final String KEY_CONFIRM_RUN = "confirm_before_run";
+    private static final String KEY_AUTO_REFRESH_AFTER_APPLY = "auto_refresh_after_apply";
+    private static final String KEY_AGGRESSIVE_GRAPH_RETURN = "aggressive_graph_return";
     private static final int FILE_CHOOSER_REQUEST = 42;
 
     private WebView webView;
@@ -48,6 +57,7 @@ public class MainActivity extends Activity {
     private LinearLayout mobileToolbar;
     private LinearLayout nodeDrawer;
     private LinearLayout nodeList;
+    private LinearLayout menuDrawer;
     private Button chromeButton;
     private Button testButton;
     private Button openButton;
@@ -121,7 +131,8 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         column.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        buildNodeDrawer(root);
+        buildParamsDrawer(root);
+        buildMenuDrawer(root);
         buildMobileToolbar(root);
 
         chromeButton = makeMiniButton("⋮");
@@ -138,7 +149,7 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private void buildNodeDrawer(FrameLayout root) {
+    private void buildParamsDrawer(FrameLayout root) {
         nodeDrawer = new LinearLayout(this);
         nodeDrawer.setOrientation(LinearLayout.VERTICAL);
         nodeDrawer.setPadding(dp(10), dp(10), dp(10), dp(10));
@@ -152,7 +163,7 @@ public class MainActivity extends Activity {
         nodeDrawer.addView(drawerHeader, new LinearLayout.LayoutParams(-1, dp(52)));
 
         TextView drawerTitle = new TextView(this);
-        drawerTitle.setText("Nodes");
+        drawerTitle.setText("Params");
         drawerTitle.setTextColor(Color.WHITE);
         drawerTitle.setTextSize(20);
         drawerTitle.setGravity(Gravity.CENTER_VERTICAL);
@@ -165,7 +176,7 @@ public class MainActivity extends Activity {
         drawerHeader.addView(closeNodes, new LinearLayout.LayoutParams(dp(48), dp(44)));
 
         TextView drawerHint = new TextView(this);
-        drawerHint.setText("Tap a node to expand. Edit widget values and press Apply.");
+        drawerHint.setText("Edit workflow parameters and press Apply.");
         drawerHint.setTextColor(Color.rgb(156, 163, 175));
         drawerHint.setTextSize(13);
         drawerHint.setPadding(0, 0, 0, dp(8));
@@ -189,6 +200,73 @@ public class MainActivity extends Activity {
         closeNodes.setOnClickListener(v -> hideNodeDrawer());
     }
 
+    private void buildMenuDrawer(FrameLayout root) {
+        menuDrawer = new LinearLayout(this);
+        menuDrawer.setOrientation(LinearLayout.VERTICAL);
+        menuDrawer.setPadding(dp(12), dp(10), dp(12), dp(10));
+        menuDrawer.setVisibility(View.GONE);
+        menuDrawer.setClickable(true);
+        menuDrawer.setBackground(drawerBackground());
+
+        LinearLayout header = new LinearLayout(this);
+        header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        menuDrawer.addView(header, new LinearLayout.LayoutParams(-1, dp(52)));
+
+        TextView title = new TextView(this);
+        title.setText("Menu");
+        title.setTextColor(Color.WHITE);
+        title.setTextSize(20);
+        title.setGravity(Gravity.CENTER_VERTICAL);
+        header.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
+
+        Button close = makeSmallDrawerButton("×");
+        header.addView(close, new LinearLayout.LayoutParams(dp(48), dp(44)));
+        close.setOnClickListener(v -> hideMenuDrawer());
+
+        ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(false);
+        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        menuDrawer.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+
+        content.addView(makeSectionTitle("Connection"));
+        content.addView(makeMenuAction("Test connection", () -> testConnection()));
+        content.addView(makeMenuAction("Reload ComfyUI", () -> webView.reload()));
+        content.addView(makeMenuAction("Show URL panel", () -> {
+            hideMenuDrawer();
+            topBar.setVisibility(View.VISIBLE);
+            statusText.setVisibility(View.VISIBLE);
+        }));
+
+        content.addView(makeSectionTitle("Settings"));
+        content.addView(makeSettingCheckBox(KEY_OPEN_PARAMS_DEFAULT, "Open Params by default", false));
+        content.addView(makeSettingCheckBox(KEY_SHOW_ONLY_EDITABLE, "Show only editable nodes", true));
+        content.addView(makeSettingCheckBox(KEY_HIDE_TECHNICAL, "Hide technical fields", true));
+        content.addView(makeSettingCheckBox(KEY_COMPACT_CARDS, "Compact cards", true));
+        content.addView(makeSettingCheckBox(KEY_CONFIRM_RUN, "Confirm before Run", true));
+        content.addView(makeSettingCheckBox(KEY_AUTO_REFRESH_AFTER_APPLY, "Auto refresh after Apply", true));
+        content.addView(makeSettingCheckBox(KEY_AGGRESSIVE_GRAPH_RETURN, "Aggressive Graph return", true));
+
+        content.addView(makeSectionTitle("Debug"));
+        content.addView(makeMenuAction("Open full ComfyUI graph", () -> {
+            hideMenuDrawer();
+            returnToGraph();
+        }));
+        content.addView(makeMenuAction("Clear WebView cache", () -> {
+            webView.clearCache(true);
+            webView.clearHistory();
+            Toast.makeText(this, "WebView cache cleared", Toast.LENGTH_SHORT).show();
+        }));
+
+        int drawerWidth = Math.min(dp(390), Math.max(dp(300), getResources().getDisplayMetrics().widthPixels - dp(36)));
+        FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(drawerWidth, -1);
+        mp.gravity = Gravity.RIGHT;
+        root.addView(menuDrawer, mp);
+    }
+
     private void buildMobileToolbar(FrameLayout root) {
         mobileToolbar = new LinearLayout(this);
         mobileToolbar.setOrientation(LinearLayout.HORIZONTAL);
@@ -197,18 +275,16 @@ public class MainActivity extends Activity {
         mobileToolbar.setVisibility(View.GONE);
         mobileToolbar.setBackground(toolbarBackground());
 
-        Button nodes = makeToolbarButton("Nodes");
+        Button params = makeToolbarButton("Params");
+        Button graph = makeToolbarButton("Graph");
         Button run = makeToolbarButton("Run");
         Button fit = makeToolbarButton("Fit");
-        Button zoomOut = makeToolbarButton("−");
-        Button zoomIn = makeToolbarButton("+");
         Button menu = makeToolbarButton("Menu");
 
-        mobileToolbar.addView(nodes, toolbarButtonParams());
+        mobileToolbar.addView(params, toolbarButtonParams());
+        mobileToolbar.addView(graph, toolbarButtonParams());
         mobileToolbar.addView(run, toolbarButtonParams());
         mobileToolbar.addView(fit, toolbarButtonParams());
-        mobileToolbar.addView(zoomOut, toolbarButtonParams());
-        mobileToolbar.addView(zoomIn, toolbarButtonParams());
         mobileToolbar.addView(menu, toolbarButtonParams());
 
         FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(-1, dp(64));
@@ -216,12 +292,11 @@ public class MainActivity extends Activity {
         mp.setMargins(dp(8), 0, dp(8), dp(8));
         root.addView(mobileToolbar, mp);
 
-        nodes.setOnClickListener(v -> toggleNodeDrawer());
+        params.setOnClickListener(v -> toggleNodeDrawer());
+        graph.setOnClickListener(v -> returnToGraph());
         run.setOnClickListener(v -> runComfyQueue());
         fit.setOnClickListener(v -> fitComfyCanvas());
-        zoomOut.setOnClickListener(v -> webView.zoomOut());
-        zoomIn.setOnClickListener(v -> webView.zoomIn());
-        menu.setOnClickListener(v -> toggleConnectionPanel());
+        menu.setOnClickListener(v -> toggleMenuDrawer());
     }
 
     private LinearLayout.LayoutParams toolbarButtonParams() {
@@ -230,12 +305,53 @@ public class MainActivity extends Activity {
         return p;
     }
 
+    private TextView makeSectionTitle(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(16);
+        t.setPadding(dp(2), dp(14), dp(2), dp(6));
+        return t;
+    }
+
+    private View makeMenuAction(String text, Runnable action) {
+        Button b = makeButton(text);
+        b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
+        b.setPadding(dp(14), 0, dp(14), 0);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(46));
+        p.setMargins(0, 0, 0, dp(8));
+        b.setLayoutParams(p);
+        b.setOnClickListener(v -> {
+            action.run();
+            enterImmersiveMode();
+        });
+        return b;
+    }
+
+    private CheckBox makeSettingCheckBox(String key, String text, boolean defaultValue) {
+        CheckBox box = new CheckBox(this);
+        box.setText(text);
+        box.setTextColor(Color.rgb(226, 232, 240));
+        box.setTextSize(14);
+        box.setPadding(dp(2), dp(4), dp(2), dp(4));
+        box.setChecked(getBoolSetting(key, defaultValue));
+        box.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            setBoolSetting(key, isChecked);
+            if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
+                refreshNodeDrawer();
+            }
+        });
+        return box;
+    }
+
     private Button makeButton(String text) {
         Button b = new Button(this);
         b.setText(text);
         b.setAllCaps(false);
         b.setTextSize(14);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(10)));
         return b;
     }
@@ -244,11 +360,13 @@ public class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(text);
         b.setAllCaps(false);
-        b.setTextSize(13);
+        b.setTextSize(12);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setMinHeight(dp(44));
         b.setMinimumHeight(dp(44));
-        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setPadding(dp(3), 0, dp(3), 0);
         b.setBackground(buttonBackground(Color.rgb(31, 41, 55), dp(14)));
         return b;
     }
@@ -281,6 +399,8 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setTextSize(12);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setPadding(dp(4), 0, dp(4), 0);
         b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(10)));
         return b;
@@ -369,6 +489,9 @@ public class MainActivity extends Activity {
                 injectMobileLayer();
                 mainHandler.postDelayed(() -> injectMobileLayer(), 800);
                 mainHandler.postDelayed(() -> injectMobileLayer(), 2200);
+                if (getBoolSetting(KEY_OPEN_PARAMS_DEFAULT, false) && topBar.getVisibility() != View.VISIBLE) {
+                    mainHandler.postDelayed(() -> showNodeDrawer(), 800);
+                }
                 enterImmersiveMode();
             }
         });
@@ -442,11 +565,17 @@ public class MainActivity extends Activity {
         if (nodeDrawer.getVisibility() == View.VISIBLE) {
             hideNodeDrawer();
         } else {
-            nodeDrawer.setVisibility(View.VISIBLE);
-            mobileToolbar.setVisibility(View.GONE);
-            chromeButton.setVisibility(View.GONE);
-            refreshNodeDrawer();
+            showNodeDrawer();
         }
+        enterImmersiveMode();
+    }
+
+    private void showNodeDrawer() {
+        hideMenuDrawerIfOpen();
+        nodeDrawer.setVisibility(View.VISIBLE);
+        mobileToolbar.setVisibility(View.GONE);
+        chromeButton.setVisibility(View.GONE);
+        refreshNodeDrawer();
         enterImmersiveMode();
     }
 
@@ -457,9 +586,36 @@ public class MainActivity extends Activity {
         enterImmersiveMode();
     }
 
+    private void toggleMenuDrawer() {
+        if (menuDrawer.getVisibility() == View.VISIBLE) {
+            hideMenuDrawer();
+        } else {
+            hideNodeDrawerIfOpen();
+            menuDrawer.setVisibility(View.VISIBLE);
+            mobileToolbar.setVisibility(View.GONE);
+            chromeButton.setVisibility(View.GONE);
+        }
+        enterImmersiveMode();
+    }
+
+    private void hideMenuDrawer() {
+        menuDrawer.setVisibility(View.GONE);
+        mobileToolbar.setVisibility(View.VISIBLE);
+        chromeButton.setVisibility(View.VISIBLE);
+        enterImmersiveMode();
+    }
+
+    private void hideMenuDrawerIfOpen() {
+        if (menuDrawer != null && menuDrawer.getVisibility() == View.VISIBLE) {
+            menuDrawer.setVisibility(View.GONE);
+            mobileToolbar.setVisibility(View.VISIBLE);
+            chromeButton.setVisibility(View.VISIBLE);
+        }
+    }
+
     private void refreshNodeDrawer() {
         nodeList.removeAllViews();
-        addDrawerMessage("Reading workflow nodes...", false);
+        addDrawerMessage("Reading workflow parameters...", false);
         injectMobileLayer();
         webView.evaluateJavascript(getNodeListScript(), this::renderNodeDrawer);
     }
@@ -468,16 +624,21 @@ public class MainActivity extends Activity {
         nodeList.removeAllViews();
         try {
             if (value == null || "null".equals(value)) {
-                addDrawerMessage("Could not read nodes. Open a workflow first.", true);
+                addDrawerMessage("Could not read workflow. Open a workflow first.", true);
                 return;
             }
             JSONArray nodes = new JSONArray(value);
-            if (nodes.length() == 0) {
-                addDrawerMessage("No nodes found in the current graph.", true);
-                return;
-            }
+            int shown = 0;
             for (int i = 0; i < nodes.length(); i++) {
-                addNodeCard(nodes.getJSONObject(i), i + 1);
+                JSONObject node = nodes.getJSONObject(i);
+                JSONArray widgets = node.optJSONArray("widgets");
+                boolean editable = widgets != null && widgets.length() > 0;
+                if (getBoolSetting(KEY_SHOW_ONLY_EDITABLE, true) && !editable) continue;
+                addNodeCard(node, shown + 1);
+                shown++;
+            }
+            if (shown == 0) {
+                addDrawerMessage("No editable parameters found. Disable 'Show only editable nodes' in Menu → Settings to inspect all nodes.", true);
             }
         } catch (JSONException e) {
             addDrawerMessage("Could not parse ComfyUI node list.", true);
@@ -493,40 +654,34 @@ public class MainActivity extends Activity {
         JSONArray widgets = node.optJSONArray("widgets");
         JSONArray inputs = node.optJSONArray("inputs");
         JSONArray outputs = node.optJSONArray("outputs");
+        boolean compact = getBoolSetting(KEY_COMPACT_CARDS, true);
+        boolean hideTechnical = getBoolSetting(KEY_HIDE_TECHNICAL, true);
 
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(8), dp(8), dp(8), dp(8));
+        card.setPadding(dp(8), compact ? dp(6) : dp(8), dp(8), compact ? dp(6) : dp(8));
         card.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(14)));
         LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
-        cardParams.setMargins(0, 0, 0, dp(8));
+        cardParams.setMargins(0, 0, 0, compact ? dp(6) : dp(8));
         nodeList.addView(card, cardParams);
 
-        LinearLayout headerRow = new LinearLayout(this);
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(headerRow, new LinearLayout.LayoutParams(-1, dp(48)));
-
         Button header = makeNodeHeaderButton(index + ". #" + id + "  " + title);
-        headerRow.addView(header, new LinearLayout.LayoutParams(0, -1, 1));
+        card.addView(header, new LinearLayout.LayoutParams(-1, compact ? dp(44) : dp(48)));
 
-        Button focus = makeTinyActionButton("Focus");
-        LinearLayout.LayoutParams focusParams = new LinearLayout.LayoutParams(dp(70), -1);
-        focusParams.setMargins(dp(6), 0, 0, 0);
-        headerRow.addView(focus, focusParams);
-
-        TextView meta = makeDrawerText(type.isEmpty() ? "type: unknown" : "type: " + type, 13, Color.rgb(148, 163, 184));
-        meta.setPadding(dp(4), dp(4), dp(4), dp(8));
-        card.addView(meta, new LinearLayout.LayoutParams(-1, -2));
+        if (!hideTechnical) {
+            TextView meta = makeDrawerText(type.isEmpty() ? "type: unknown" : "type: " + type, 13, Color.rgb(148, 163, 184));
+            meta.setPadding(dp(4), dp(4), dp(4), dp(8));
+            card.addView(meta, new LinearLayout.LayoutParams(-1, -2));
+        }
 
         LinearLayout details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
         details.setVisibility(View.GONE);
-        details.setPadding(dp(4), dp(6), dp(4), 0);
+        details.setPadding(dp(4), compact ? dp(4) : dp(6), dp(4), 0);
         card.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
         if (widgets != null && widgets.length() > 0) {
-            details.addView(makeDrawerText("Widgets", 14, Color.WHITE));
+            details.addView(makeDrawerText("Editable fields", 14, Color.WHITE));
             for (int i = 0; i < widgets.length(); i++) {
                 JSONObject w = widgets.getJSONObject(i);
                 String name = clean(w.optString("name", "widget_" + i));
@@ -535,22 +690,24 @@ public class MainActivity extends Activity {
                 addWidgetEditor(details, id, i, name, wType, wValue);
             }
         } else {
-            details.addView(makeDrawerText("No widgets", 13, Color.rgb(148, 163, 184)));
+            details.addView(makeDrawerText("No editable widgets", 13, Color.rgb(148, 163, 184)));
         }
 
-        if (inputs != null && inputs.length() > 0) {
-            details.addView(makeDrawerText("\nInputs", 14, Color.WHITE));
-            for (int i = 0; i < inputs.length(); i++) {
-                JSONObject input = inputs.getJSONObject(i);
-                details.addView(makeDrawerText("• " + clean(input.optString("name", "input")) + " : " + clean(input.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+        if (!hideTechnical) {
+            if (inputs != null && inputs.length() > 0) {
+                details.addView(makeDrawerText("\nInputs", 14, Color.WHITE));
+                for (int i = 0; i < inputs.length(); i++) {
+                    JSONObject input = inputs.getJSONObject(i);
+                    details.addView(makeDrawerText("• " + clean(input.optString("name", "input")) + " : " + clean(input.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+                }
             }
-        }
 
-        if (outputs != null && outputs.length() > 0) {
-            details.addView(makeDrawerText("\nOutputs", 14, Color.WHITE));
-            for (int i = 0; i < outputs.length(); i++) {
-                JSONObject output = outputs.getJSONObject(i);
-                details.addView(makeDrawerText("• " + clean(output.optString("name", "output")) + " : " + clean(output.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+            if (outputs != null && outputs.length() > 0) {
+                details.addView(makeDrawerText("\nOutputs", 14, Color.WHITE));
+                for (int i = 0; i < outputs.length(); i++) {
+                    JSONObject output = outputs.getJSONObject(i);
+                    details.addView(makeDrawerText("• " + clean(output.optString("name", "output")) + " : " + clean(output.optString("type", "")), 13, Color.rgb(203, 213, 225)));
+                }
             }
         }
 
@@ -558,12 +715,12 @@ public class MainActivity extends Activity {
             details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             enterImmersiveMode();
         });
-        focus.setOnClickListener(v -> focusNode(id));
     }
 
     private void addWidgetEditor(LinearLayout details, int nodeId, int widgetIndex, String name, String type, String value) {
-        TextView label = makeDrawerText("• " + name + (type.isEmpty() ? "" : " [" + type + "]"), 13, Color.rgb(203, 213, 225));
-        label.setPadding(dp(4), dp(8), dp(4), dp(2));
+        boolean compact = getBoolSetting(KEY_COMPACT_CARDS, true);
+        TextView label = makeDrawerText("• " + name + (getBoolSetting(KEY_HIDE_TECHNICAL, true) || type.isEmpty() ? "" : " [" + type + "]"), 13, Color.rgb(203, 213, 225));
+        label.setPadding(dp(4), compact ? dp(6) : dp(8), dp(4), dp(2));
         details.addView(label, new LinearLayout.LayoutParams(-1, -2));
 
         LinearLayout row = new LinearLayout(this);
@@ -586,7 +743,7 @@ public class MainActivity extends Activity {
         row.addView(valueInput, new LinearLayout.LayoutParams(0, -2, 1));
 
         Button apply = makeTinyActionButton("Apply");
-        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(74), dp(46));
+        LinearLayout.LayoutParams applyParams = new LinearLayout.LayoutParams(dp(74), compact ? dp(42) : dp(46));
         applyParams.setMargins(dp(6), 0, 0, 0);
         row.addView(apply, applyParams);
 
@@ -600,6 +757,8 @@ public class MainActivity extends Activity {
         b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         b.setTextSize(14);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setPadding(dp(10), 0, dp(10), 0);
         b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(12)));
         return b;
@@ -643,26 +802,6 @@ public class MainActivity extends Activity {
                 + "})();";
     }
 
-    private void focusNode(int nodeId) {
-        String script = "(function(){"
-                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
-                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
-                + "if(!graph||!canvas)return false;"
-                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
-                + "if(!n)return false;"
-                + "try{canvas.selectNode&&canvas.selectNode(n);}catch(e){}"
-                + "try{if(canvas.ds&&n.pos){var scale=canvas.ds.scale||1;var size=n.size||[260,120];canvas.ds.offset[0]=(canvas.canvas.width/2)/scale-n.pos[0]-size[0]/2;canvas.ds.offset[1]=(canvas.canvas.height/2)/scale-n.pos[1]-size[1]/2;}}catch(e){}"
-                + "try{canvas.setDirty&&canvas.setDirty(true,true);}catch(e){}"
-                + "return true;"
-                + "})();";
-        webView.evaluateJavascript(script, value -> {
-            if (!"true".equals(value)) {
-                Toast.makeText(this, "Could not focus node", Toast.LENGTH_SHORT).show();
-            }
-        });
-        enterImmersiveMode();
-    }
-
     private void applyWidgetValue(int nodeId, int widgetIndex, String rawValue) {
         String script = "(function(){"
                 + "var raw=" + jsString(rawValue) + ";"
@@ -684,12 +823,48 @@ public class MainActivity extends Activity {
         webView.evaluateJavascript(script, value -> {
             if ("true".equals(value)) {
                 Toast.makeText(this, "Applied", Toast.LENGTH_SHORT).show();
-                refreshNodeDrawer();
+                if (getBoolSetting(KEY_AUTO_REFRESH_AFTER_APPLY, true)) refreshNodeDrawer();
             } else {
                 Toast.makeText(this, "Could not apply widget value", Toast.LENGTH_SHORT).show();
             }
         });
         enterImmersiveMode();
+    }
+
+    private void returnToGraph() {
+        hideNodeDrawerIfOpen();
+        hideMenuDrawerIfOpen();
+        injectMobileLayer();
+        boolean aggressive = getBoolSetting(KEY_AGGRESSIVE_GRAPH_RETURN, true);
+        String overlayPart = aggressive
+                ? "try{[].slice.call(document.querySelectorAll('.p-dialog-mask,.p-component-overlay,.p-dialog,.p-sidebar,.p-drawer,.p-overlaypanel')).forEach(function(el){el.style.display='none';});}catch(e){}"
+                : "";
+        String script = "(function(){"
+                + "function esc(){try{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));}catch(e){}}"
+                + "esc();esc();"
+                + "function info(el){return ((el.innerText||el.textContent||'')+' '+(el.title||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();}"
+                + "function clickByWords(words){var els=[].slice.call(document.querySelectorAll('button,[role=button],a,.p-tab,.p-button'));for(var i=0;i<els.length;i++){var t=info(els[i]);for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0){els[i].click();return true;}}}return false;}"
+                + "var closed=0;[].slice.call(document.querySelectorAll('button,[role=button]')).forEach(function(el){var t=info(el);if(t==='×'||t.indexOf('close')>=0||t.indexOf('dismiss')>=0){try{el.click();closed++;}catch(e){}}});"
+                + "var clicked=clickByWords(['graph','workflow','editor']);"
+                + overlayPart
+                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
+                + "try{if(canvas&&canvas.canvas){canvas.canvas.focus();canvas.setDirty&&canvas.setDirty(true,true);}}catch(e){}"
+                + "return clicked||closed>0||!!canvas;"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if (!"true".equals(value)) {
+                Toast.makeText(this, "Could not return to graph", Toast.LENGTH_SHORT).show();
+            }
+        });
+        enterImmersiveMode();
+    }
+
+    private void hideNodeDrawerIfOpen() {
+        if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
+            nodeDrawer.setVisibility(View.GONE);
+            mobileToolbar.setVisibility(View.VISIBLE);
+            chromeButton.setVisibility(View.VISIBLE);
+        }
     }
 
     private void saveUrl(String url) {
@@ -702,6 +877,14 @@ public class MainActivity extends Activity {
         if (!raw.startsWith("http://") && !raw.startsWith("https://")) raw = "http://" + raw;
         while (raw.endsWith("/")) raw = raw.substring(0, raw.length() - 1);
         return raw;
+    }
+
+    private boolean getBoolSetting(String key, boolean defaultValue) {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, defaultValue);
+    }
+
+    private void setBoolSetting(String key, boolean value) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply();
     }
 
     private void setBusy(boolean busy, String message) {
@@ -742,6 +925,19 @@ public class MainActivity extends Activity {
     }
 
     private void runComfyQueue() {
+        if (getBoolSetting(KEY_CONFIRM_RUN, true)) {
+            new AlertDialog.Builder(this)
+                    .setTitle("Run workflow?")
+                    .setMessage("Start ComfyUI generation with the current workflow values.")
+                    .setPositiveButton("Run", (dialog, which) -> runComfyQueueNow())
+                    .setNegativeButton("Cancel", null)
+                    .show();
+            return;
+        }
+        runComfyQueueNow();
+    }
+
+    private void runComfyQueueNow() {
         injectMobileLayer();
         webView.evaluateJavascript(
                 "(function(){return window.ComfyAndroidRemote&&window.ComfyAndroidRemote.run?window.ComfyAndroidRemote.run():false;})();",
@@ -797,7 +993,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
+        if (menuDrawer != null && menuDrawer.getVisibility() == View.VISIBLE) {
+            hideMenuDrawer();
+        } else if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
             hideNodeDrawer();
         } else if (topBar.getVisibility() != View.VISIBLE && webView != null && !webView.canGoBack()) {
             toggleConnectionPanel();
