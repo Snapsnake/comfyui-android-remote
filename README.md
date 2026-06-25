@@ -12,11 +12,12 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - Enables JavaScript, DOM storage, zoom, mixed content, cleartext HTTP, and Android file upload from WebView.
 - Adds a basic mobile workspace layer after opening ComfyUI:
   - fullscreen immersive mode;
-  - compact bottom toolbar with `Nodes`, `Graph`, `Run`, `Fit`, and `Menu`;
+  - compact bottom toolbar with `Params`, `Graph`, `Run`, `Fit`, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
   - `Graph` action for trying to close overlays such as Job Queue and return to the workflow canvas;
-  - native `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
-  - editable widget fields in the `Nodes` drawer;
+  - native `Params` drawer that reads the current ComfyUI graph and lists editable workflow parameters;
+  - editable widget fields in the `Params` drawer;
+  - `Menu` drawer with connection actions, settings, and debug actions;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -25,7 +26,7 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not run ComfyUI on Android.
 - It does not replace ComfyUI with a native mobile UI.
 - It does not make public exposure of ComfyUI safe.
-- It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar and node drawer are a first usability layer over the existing desktop ComfyUI frontend.
+- It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar and drawers are a usability layer over the existing desktop ComfyUI frontend.
 - It does not guarantee that every custom node widget can be edited safely. Some custom widgets may need node-specific handling.
 
 ## Recommended connection mode
@@ -70,23 +71,35 @@ Do not commit your personal tailnet URL to this public repository. Store it only
 
 After pressing `Open`, the connection panel is hidden and the app shows a compact bottom toolbar:
 
-- `Nodes` opens a native drawer with the current workflow nodes.
+- `Params` opens a native drawer with the current editable workflow parameters.
 - `Graph` tries to close ComfyUI overlays/panels and return to the workflow canvas.
 - `Run` tries to press the visible ComfyUI run/queue/generate button.
 - `Fit` tries to trigger the ComfyUI fit/reset-view action.
-- `Menu` shows or hides the connection panel.
+- `Menu` opens a native menu/settings drawer.
 - The small floating button hides or shows the bottom toolbar.
 
-The `Nodes` drawer reads `window.app.graph` from the loaded ComfyUI frontend and shows:
+The `Params` drawer reads `window.app.graph` from the loaded ComfyUI frontend and shows:
 
 - node id;
 - node title;
-- node type;
-- editable widgets and their current values;
-- inputs;
-- outputs.
+- editable widgets and their current values.
 
-Tap a node in the drawer to expand or collapse its details. Change a widget value and press `Apply` to write it back into the loaded ComfyUI graph.
+Tap a parameter card to expand or collapse its details. Change a widget value and press `Apply` to write it back into the loaded ComfyUI graph.
+
+## Menu and settings
+
+The `Menu` drawer contains:
+
+- Connection actions: test connection, reload ComfyUI, show URL panel.
+- Settings:
+  - open Params by default;
+  - show only editable nodes;
+  - hide technical fields;
+  - compact cards;
+  - confirm before Run;
+  - auto refresh after Apply;
+  - aggressive Graph return.
+- Debug actions: open full ComfyUI graph and clear WebView cache.
 
 These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read/write the current in-browser graph from the loaded ComfyUI frontend.
 
