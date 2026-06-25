@@ -12,11 +12,11 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - Enables JavaScript, DOM storage, zoom, mixed content, cleartext HTTP, and Android file upload from WebView.
 - Adds a basic mobile workspace layer after opening ComfyUI:
   - fullscreen immersive mode;
-  - compact bottom toolbar with `Nodes`, `Run`, `Fit`, zoom in, zoom out, and `Menu`;
+  - compact bottom toolbar with `Nodes`, `Graph`, `Run`, `Fit`, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
+  - `Graph` action for trying to close overlays such as Job Queue and return to the workflow canvas;
   - native `Nodes` drawer that reads the current ComfyUI graph and lists workflow nodes;
   - editable widget fields in the `Nodes` drawer;
-  - `Focus` action to select and center a node on the canvas;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -71,9 +71,9 @@ Do not commit your personal tailnet URL to this public repository. Store it only
 After pressing `Open`, the connection panel is hidden and the app shows a compact bottom toolbar:
 
 - `Nodes` opens a native drawer with the current workflow nodes.
+- `Graph` tries to close ComfyUI overlays/panels and return to the workflow canvas.
 - `Run` tries to press the visible ComfyUI run/queue/generate button.
 - `Fit` tries to trigger the ComfyUI fit/reset-view action.
-- `−` and `+` use Android WebView zoom.
 - `Menu` shows or hides the connection panel.
 - The small floating button hides or shows the bottom toolbar.
 
@@ -86,7 +86,7 @@ The `Nodes` drawer reads `window.app.graph` from the loaded ComfyUI frontend and
 - inputs;
 - outputs.
 
-Tap a node in the drawer to expand or collapse its details. Press `Focus` to select and center that node on the canvas. Change a widget value and press `Apply` to write it back into the loaded ComfyUI graph.
+Tap a node in the drawer to expand or collapse its details. Change a widget value and press `Apply` to write it back into the loaded ComfyUI graph.
 
 These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read/write the current in-browser graph from the loaded ComfyUI frontend.
 
