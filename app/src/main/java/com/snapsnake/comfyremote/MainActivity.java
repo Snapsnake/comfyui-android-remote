@@ -198,17 +198,15 @@ public class MainActivity extends Activity {
         mobileToolbar.setBackground(toolbarBackground());
 
         Button nodes = makeToolbarButton("Nodes");
+        Button graph = makeToolbarButton("Graph");
         Button run = makeToolbarButton("Run");
         Button fit = makeToolbarButton("Fit");
-        Button zoomOut = makeToolbarButton("−");
-        Button zoomIn = makeToolbarButton("+");
         Button menu = makeToolbarButton("Menu");
 
         mobileToolbar.addView(nodes, toolbarButtonParams());
+        mobileToolbar.addView(graph, toolbarButtonParams());
         mobileToolbar.addView(run, toolbarButtonParams());
         mobileToolbar.addView(fit, toolbarButtonParams());
-        mobileToolbar.addView(zoomOut, toolbarButtonParams());
-        mobileToolbar.addView(zoomIn, toolbarButtonParams());
         mobileToolbar.addView(menu, toolbarButtonParams());
 
         FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(-1, dp(64));
@@ -217,10 +215,9 @@ public class MainActivity extends Activity {
         root.addView(mobileToolbar, mp);
 
         nodes.setOnClickListener(v -> toggleNodeDrawer());
+        graph.setOnClickListener(v -> returnToGraph());
         run.setOnClickListener(v -> runComfyQueue());
         fit.setOnClickListener(v -> fitComfyCanvas());
-        zoomOut.setOnClickListener(v -> webView.zoomOut());
-        zoomIn.setOnClickListener(v -> webView.zoomIn());
         menu.setOnClickListener(v -> toggleConnectionPanel());
     }
 
@@ -236,6 +233,8 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setTextSize(14);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(10)));
         return b;
     }
@@ -244,11 +243,13 @@ public class MainActivity extends Activity {
         Button b = new Button(this);
         b.setText(text);
         b.setAllCaps(false);
-        b.setTextSize(13);
+        b.setTextSize(12);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setMinHeight(dp(44));
         b.setMinimumHeight(dp(44));
-        b.setPadding(dp(4), 0, dp(4), 0);
+        b.setPadding(dp(3), 0, dp(3), 0);
         b.setBackground(buttonBackground(Color.rgb(31, 41, 55), dp(14)));
         return b;
     }
@@ -281,6 +282,8 @@ public class MainActivity extends Activity {
         b.setAllCaps(false);
         b.setTextSize(12);
         b.setTextColor(Color.WHITE);
+        b.setSingleLine(true);
+        b.setIncludeFontPadding(false);
         b.setPadding(dp(4), 0, dp(4), 0);
         b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(10)));
         return b;
@@ -502,18 +505,8 @@ public class MainActivity extends Activity {
         cardParams.setMargins(0, 0, 0, dp(8));
         nodeList.addView(card, cardParams);
 
-        LinearLayout headerRow = new LinearLayout(this);
-        headerRow.setOrientation(LinearLayout.HORIZONTAL);
-        headerRow.setGravity(Gravity.CENTER_VERTICAL);
-        card.addView(headerRow, new LinearLayout.LayoutParams(-1, dp(48)));
-
         Button header = makeNodeHeaderButton(index + ". #" + id + "  " + title);
-        headerRow.addView(header, new LinearLayout.LayoutParams(0, -1, 1));
-
-        Button focus = makeTinyActionButton("Focus");
-        LinearLayout.LayoutParams focusParams = new LinearLayout.LayoutParams(dp(70), -1);
-        focusParams.setMargins(dp(6), 0, 0, 0);
-        headerRow.addView(focus, focusParams);
+        card.addView(header, new LinearLayout.LayoutParams(-1, dp(48)));
 
         TextView meta = makeDrawerText(type.isEmpty() ? "type: unknown" : "type: " + type, 13, Color.rgb(148, 163, 184));
         meta.setPadding(dp(4), dp(4), dp(4), dp(8));
@@ -558,7 +551,6 @@ public class MainActivity extends Activity {
             details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             enterImmersiveMode();
         });
-        focus.setOnClickListener(v -> focusNode(id));
     }
 
     private void addWidgetEditor(LinearLayout details, int nodeId, int widgetIndex, String name, String type, String value) {
@@ -643,26 +635,6 @@ public class MainActivity extends Activity {
                 + "})();";
     }
 
-    private void focusNode(int nodeId) {
-        String script = "(function(){"
-                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
-                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
-                + "if(!graph||!canvas)return false;"
-                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
-                + "if(!n)return false;"
-                + "try{canvas.selectNode&&canvas.selectNode(n);}catch(e){}"
-                + "try{if(canvas.ds&&n.pos){var scale=canvas.ds.scale||1;var size=n.size||[260,120];canvas.ds.offset[0]=(canvas.canvas.width/2)/scale-n.pos[0]-size[0]/2;canvas.ds.offset[1]=(canvas.canvas.height/2)/scale-n.pos[1]-size[1]/2;}}catch(e){}"
-                + "try{canvas.setDirty&&canvas.setDirty(true,true);}catch(e){}"
-                + "return true;"
-                + "})();";
-        webView.evaluateJavascript(script, value -> {
-            if (!"true".equals(value)) {
-                Toast.makeText(this, "Could not focus node", Toast.LENGTH_SHORT).show();
-            }
-        });
-        enterImmersiveMode();
-    }
-
     private void applyWidgetValue(int nodeId, int widgetIndex, String rawValue) {
         String script = "(function(){"
                 + "var raw=" + jsString(rawValue) + ";"
@@ -690,6 +662,37 @@ public class MainActivity extends Activity {
             }
         });
         enterImmersiveMode();
+    }
+
+    private void returnToGraph() {
+        hideNodeDrawerIfOpen();
+        injectMobileLayer();
+        String script = "(function(){"
+                + "function esc(){try{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));}catch(e){}}"
+                + "esc();esc();"
+                + "function info(el){return ((el.innerText||el.textContent||'')+' '+(el.title||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();}"
+                + "function clickByWords(words){var els=[].slice.call(document.querySelectorAll('button,[role=button],a,.p-tab,.p-button'));for(var i=0;i<els.length;i++){var t=info(els[i]);for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0){els[i].click();return true;}}}return false;}"
+                + "var closed=0;[].slice.call(document.querySelectorAll('button,[role=button]')).forEach(function(el){var t=info(el);if(t==='×'||t.indexOf('close')>=0||t.indexOf('dismiss')>=0){try{el.click();closed++;}catch(e){}}});"
+                + "var clicked=clickByWords(['graph','workflow','editor']);"
+                + "try{[].slice.call(document.querySelectorAll('.p-dialog-mask,.p-component-overlay,.p-dialog,.p-sidebar,.p-drawer,.p-overlaypanel')).forEach(function(el){el.style.display='none';});}catch(e){}"
+                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
+                + "try{if(canvas&&canvas.canvas){canvas.canvas.focus();canvas.setDirty&&canvas.setDirty(true,true);}}catch(e){}"
+                + "return clicked||closed>0||!!canvas;"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if (!"true".equals(value)) {
+                Toast.makeText(this, "Could not return to graph", Toast.LENGTH_SHORT).show();
+            }
+        });
+        enterImmersiveMode();
+    }
+
+    private void hideNodeDrawerIfOpen() {
+        if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
+            nodeDrawer.setVisibility(View.GONE);
+            mobileToolbar.setVisibility(View.VISIBLE);
+            chromeButton.setVisibility(View.VISIBLE);
+        }
     }
 
     private void saveUrl(String url) {
