@@ -24,7 +24,6 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Button;
-import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -44,49 +43,50 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
 public class MainActivity extends Activity {
     private static final String PREFS_NAME = "comfyui_remote_prefs";
     private static final String KEY_URL = "comfyui_url";
-    private static final String KEY_OPEN_PARAMS_DEFAULT = "open_params_default";
-    private static final String KEY_SHOW_ONLY_EDITABLE = "show_only_editable";
-    private static final String KEY_HIDE_TECHNICAL = "hide_technical_fields";
-    private static final String KEY_COMPACT_CARDS = "compact_cards";
-    private static final String KEY_CONFIRM_RUN = "confirm_before_run";
-    private static final String KEY_AUTO_REFRESH_AFTER_APPLY = "auto_refresh_after_apply";
-    private static final String KEY_AGGRESSIVE_GRAPH_RETURN = "aggressive_graph_return";
-    private static final String KEY_HUMAN_LABELS = "human_readable_labels";
-    private static final String KEY_ONE_APPLY_PER_CARD = "one_apply_per_card";
-    private static final String KEY_FULL_SCREEN_PARAMS = "full_screen_params";
+    private static final String KEY_WORKFLOW_API_JSON = "workflow_api_json";
+    private static final String KEY_LAST_OUTPUT_URL = "last_output_url";
+
     private static final int FILE_CHOOSER_REQUEST = 42;
     private static final int IMAGE_PICKER_REQUEST = 43;
+    private static final int WORKFLOW_PICKER_REQUEST = 44;
 
-    private WebView webView;
-    private EditText urlInput;
-    private ProgressBar progressBar;
-    private TextView statusText;
     private LinearLayout topBar;
-    private LinearLayout mobileToolbar;
-    private LinearLayout nodeDrawer;
-    private LinearLayout nodeList;
-    private LinearLayout menuDrawer;
-    private Button chromeButton;
-    private Button testButton;
-    private Button openButton;
-    private Button reloadButton;
+    private EditText urlInput;
+    private TextView statusText;
+    private ProgressBar progressBar;
+    private FrameLayout workspaceFrame;
+    private ScrollView nativeScroll;
+    private LinearLayout nativeContent;
+    private WebView graphWebView;
+    private LinearLayout bottomToolbar;
+    private EditText workflowJsonEditor;
+
     private ValueCallback<Uri[]> filePathCallback;
-    private int pendingImageNodeId = -1;
-    private int pendingImageWidgetIndex = -1;
+    private JSONObject workflowObject;
+    private final List<ApiField> apiFields = new ArrayList<>();
+    private String pendingImageNodeId;
+    private String pendingImageInputKey;
+    private String lastOutputUrl;
+    private String currentPromptId;
+    private int pollAttempts;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    private static class WidgetField {
-        final int widgetIndex;
-        final EditText input;
-        WidgetField(int widgetIndex, EditText input) {
-            this.widgetIndex = widgetIndex;
-            this.input = input;
+    private static class ApiField {
+        final String nodeId;
+        final String inputKey;
+        final EditText editor;
+
+        ApiField(String nodeId, String inputKey, EditText editor) {
+            this.nodeId = nodeId;
+            this.inputKey = inputKey;
+            this.editor = editor;
         }
     }
 
@@ -94,6 +94,7 @@ public class MainActivity extends Activity {
         final String filename;
         final String subfolder;
         final String type;
+
         OutputFile(String filename, String subfolder, String type) {
             this.filename = filename;
             this.subfolder = subfolder;
@@ -104,363 +105,138 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        enterImmersiveMode();
         buildUi();
-        configureWebView();
+        configureGraphWebView();
+        loadPrefs();
+        renderNativeScreen();
+        enterImmersiveMode();
+    }
+
+    private void loadPrefs() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         urlInput.setText(prefs.getString(KEY_URL, "http://desktop-name.tailnet.ts.net:8188"));
+        lastOutputUrl = prefs.getString(KEY_LAST_OUTPUT_URL, "");
+        String savedWorkflow = prefs.getString(KEY_WORKFLOW_API_JSON, "");
+        if (!savedWorkflow.trim().isEmpty()) {
+            try {
+                workflowObject = new JSONObject(savedWorkflow);
+            } catch (JSONException ignored) {
+                workflowObject = null;
+            }
+        }
     }
 
     private void buildUi() {
-        FrameLayout root = new FrameLayout(this);
-        LinearLayout column = new LinearLayout(this);
-        column.setOrientation(LinearLayout.VERTICAL);
-        root.addView(column, new FrameLayout.LayoutParams(-1, -1));
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.setBackgroundColor(Color.rgb(2, 6, 23));
 
         topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.VERTICAL);
-        topBar.setPadding(dp(10), dp(8), dp(10), dp(8));
-        topBar.setBackgroundColor(Color.rgb(17, 24, 39));
-        column.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
+        topBar.setPadding(dp(12), dp(8), dp(12), dp(8));
+        topBar.setBackgroundColor(Color.rgb(15, 23, 42));
+        root.addView(topBar, new LinearLayout.LayoutParams(-1, -2));
 
         TextView title = new TextView(this);
-        title.setText("ComfyUI connection");
+        title.setText("ComfyUI Mobile Remote");
         title.setTextColor(Color.WHITE);
-        title.setTextSize(17);
+        title.setTextSize(18);
+        title.setPadding(0, 0, 0, dp(4));
         topBar.addView(title, new LinearLayout.LayoutParams(-1, -2));
 
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
         urlInput.setHint("http://desktop-name.tailnet.ts.net:8188");
-        urlInput.setTextSize(14);
         urlInput.setTextColor(Color.WHITE);
-        urlInput.setHintTextColor(Color.rgb(156, 163, 175));
-        topBar.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(48)));
+        urlInput.setHintTextColor(Color.rgb(148, 163, 184));
+        urlInput.setTextSize(14);
+        urlInput.setPadding(dp(12), 0, dp(12), 0);
+        urlInput.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(12)));
+        topBar.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(46)));
 
-        LinearLayout row = new LinearLayout(this);
-        row.setOrientation(LinearLayout.HORIZONTAL);
-        topBar.addView(row, new LinearLayout.LayoutParams(-1, -2));
-        testButton = makeButton("Test");
-        openButton = makeButton("Open");
-        reloadButton = makeButton("Reload");
-        row.addView(testButton, new LinearLayout.LayoutParams(0, dp(44), 1));
-        row.addView(openButton, new LinearLayout.LayoutParams(0, dp(44), 1));
-        row.addView(reloadButton, new LinearLayout.LayoutParams(0, dp(44), 1));
+        LinearLayout topButtons = new LinearLayout(this);
+        topButtons.setOrientation(LinearLayout.HORIZONTAL);
+        topButtons.setPadding(0, dp(8), 0, 0);
+        topBar.addView(topButtons, new LinearLayout.LayoutParams(-1, -2));
+
+        Button test = makePrimaryButton("Test");
+        Button nativeMode = makeSecondaryButton("Native");
+        Button graphMode = makeSecondaryButton("Graph");
+        topButtons.addView(test, weightButtonParams());
+        topButtons.addView(nativeMode, weightButtonParams());
+        topButtons.addView(graphMode, weightButtonParams());
+        test.setOnClickListener(v -> testConnection());
+        nativeMode.setOnClickListener(v -> showNativeMode());
+        graphMode.setOnClickListener(v -> showGraphMode());
 
         progressBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progressBar.setMax(100);
         progressBar.setVisibility(View.GONE);
-        column.addView(progressBar, new LinearLayout.LayoutParams(-1, dp(3)));
+        root.addView(progressBar, new LinearLayout.LayoutParams(-1, dp(3)));
 
         statusText = new TextView(this);
-        statusText.setText("Enter your ComfyUI URL, then press Test.");
-        statusText.setTextColor(Color.rgb(209, 213, 219));
-        statusText.setBackgroundColor(Color.rgb(17, 24, 39));
+        statusText.setText("Native mode uses ComfyUI API: /upload/image, /prompt, /history and /view.");
+        statusText.setTextColor(Color.rgb(203, 213, 225));
         statusText.setTextSize(12);
-        statusText.setPadding(dp(10), dp(4), dp(10), dp(6));
-        column.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
+        statusText.setPadding(dp(12), dp(6), dp(12), dp(6));
+        statusText.setBackgroundColor(Color.rgb(15, 23, 42));
+        root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
 
-        webView = new WebView(this);
-        column.addView(webView, new LinearLayout.LayoutParams(-1, 0, 1));
+        workspaceFrame = new FrameLayout(this);
+        root.addView(workspaceFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
-        buildParamsDrawer(root);
-        buildMenuDrawer(root);
-        buildMobileToolbar(root);
+        nativeScroll = new ScrollView(this);
+        nativeScroll.setFillViewport(false);
+        nativeScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        nativeContent = new LinearLayout(this);
+        nativeContent.setOrientation(LinearLayout.VERTICAL);
+        nativeContent.setPadding(dp(14), dp(14), dp(14), dp(92));
+        nativeScroll.addView(nativeContent, new ScrollView.LayoutParams(-1, -2));
+        workspaceFrame.addView(nativeScroll, new FrameLayout.LayoutParams(-1, -1));
 
-        chromeButton = makeMiniButton("⋮");
-        FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(dp(46), dp(46));
-        cp.gravity = Gravity.RIGHT | Gravity.BOTTOM;
-        cp.setMargins(0, 0, dp(12), dp(78));
-        root.addView(chromeButton, cp);
+        graphWebView = new WebView(this);
+        graphWebView.setVisibility(View.GONE);
+        workspaceFrame.addView(graphWebView, new FrameLayout.LayoutParams(-1, -1));
 
-        testButton.setOnClickListener(v -> testConnection());
-        openButton.setOnClickListener(v -> openCurrentUrl());
-        reloadButton.setOnClickListener(v -> webView.reload());
-        chromeButton.setOnClickListener(v -> toggleMobileToolbar());
+        buildBottomToolbar(root);
         setContentView(root);
     }
 
-    private void buildParamsDrawer(FrameLayout root) {
-        nodeDrawer = new LinearLayout(this);
-        nodeDrawer.setOrientation(LinearLayout.VERTICAL);
-        nodeDrawer.setPadding(dp(14), dp(12), dp(14), dp(12));
-        nodeDrawer.setVisibility(View.GONE);
-        nodeDrawer.setClickable(true);
-        nodeDrawer.setBackground(drawerBackground());
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        nodeDrawer.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        TextView title = new TextView(this);
-        title.setText("Params");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-
-        Button refresh = makeSmallDrawerButton("↻");
-        Button close = makeSmallDrawerButton("×");
-        header.addView(refresh, new LinearLayout.LayoutParams(dp(56), dp(50)));
-        header.addView(close, new LinearLayout.LayoutParams(dp(56), dp(50)));
-
-        TextView hint = new TextView(this);
-        hint.setText("Edit node parameters. Use Choose image for Load Image nodes.");
-        hint.setTextColor(Color.rgb(156, 163, 175));
-        hint.setTextSize(15);
-        hint.setPadding(0, 0, 0, dp(10));
-        nodeDrawer.addView(hint, new LinearLayout.LayoutParams(-1, -2));
-
-        ScrollView scroll = new ScrollView(this);
-        scroll.setFillViewport(false);
-        scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        nodeList = new LinearLayout(this);
-        nodeList.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(nodeList, new ScrollView.LayoutParams(-1, -2));
-        nodeDrawer.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-        root.addView(nodeDrawer, new FrameLayout.LayoutParams(-1, -1, Gravity.LEFT));
-
-        refresh.setOnClickListener(v -> refreshNodeDrawer());
-        close.setOnClickListener(v -> hideNodeDrawer());
-    }
-
-    private void buildMenuDrawer(FrameLayout root) {
-        menuDrawer = new LinearLayout(this);
-        menuDrawer.setOrientation(LinearLayout.VERTICAL);
-        menuDrawer.setPadding(dp(14), dp(12), dp(14), dp(12));
-        menuDrawer.setVisibility(View.GONE);
-        menuDrawer.setClickable(true);
-        menuDrawer.setBackground(drawerBackground());
-
-        LinearLayout header = new LinearLayout(this);
-        header.setOrientation(LinearLayout.HORIZONTAL);
-        header.setGravity(Gravity.CENTER_VERTICAL);
-        menuDrawer.addView(header, new LinearLayout.LayoutParams(-1, dp(56)));
-
-        TextView title = new TextView(this);
-        title.setText("Menu");
-        title.setTextColor(Color.WHITE);
-        title.setTextSize(24);
-        title.setGravity(Gravity.CENTER_VERTICAL);
-        header.addView(title, new LinearLayout.LayoutParams(0, -1, 1));
-
-        Button close = makeSmallDrawerButton("×");
-        header.addView(close, new LinearLayout.LayoutParams(dp(56), dp(50)));
-        close.setOnClickListener(v -> hideMenuDrawer());
-
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout content = new LinearLayout(this);
-        content.setOrientation(LinearLayout.VERTICAL);
-        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
-        menuDrawer.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-        content.addView(makeSectionTitle("Connection"));
-        content.addView(makeMenuAction("Test connection", () -> testConnection()));
-        content.addView(makeMenuAction("Reload ComfyUI", () -> webView.reload()));
-        content.addView(makeMenuAction("Show URL panel", () -> {
-            hideMenuDrawer();
-            topBar.setVisibility(View.VISIBLE);
-            statusText.setVisibility(View.VISIBLE);
-        }));
-
-        content.addView(makeSectionTitle("Workflow"));
-        content.addView(makeMenuAction("Preview latest output", () -> openLatestOutput()));
-        content.addView(makeMenuAction("Open full ComfyUI graph", () -> {
-            hideMenuDrawer();
-            returnToGraph();
-        }));
-        content.addView(makeMenuAction("Fit canvas", () -> fitComfyCanvas()));
-
-        content.addView(makeSectionTitle("Settings"));
-        content.addView(makeSettingCheckBox(KEY_HUMAN_LABELS, "Human-readable labels", true));
-        content.addView(makeSettingCheckBox(KEY_ONE_APPLY_PER_CARD, "One Apply button per card", true));
-        content.addView(makeSettingCheckBox(KEY_FULL_SCREEN_PARAMS, "Full-screen Params", true));
-        content.addView(makeSettingCheckBox(KEY_OPEN_PARAMS_DEFAULT, "Open Params by default", false));
-        content.addView(makeSettingCheckBox(KEY_SHOW_ONLY_EDITABLE, "Show only editable nodes", true));
-        content.addView(makeSettingCheckBox(KEY_HIDE_TECHNICAL, "Hide technical fields", true));
-        content.addView(makeSettingCheckBox(KEY_COMPACT_CARDS, "Compact cards", false));
-        content.addView(makeSettingCheckBox(KEY_CONFIRM_RUN, "Confirm before Run", true));
-        content.addView(makeSettingCheckBox(KEY_AUTO_REFRESH_AFTER_APPLY, "Auto refresh after Apply", true));
-        content.addView(makeSettingCheckBox(KEY_AGGRESSIVE_GRAPH_RETURN, "Aggressive Graph return", true));
-
-        content.addView(makeSectionTitle("Debug"));
-        content.addView(makeMenuAction("Clear WebView cache", () -> {
-            webView.clearCache(true);
-            webView.clearHistory();
-            Toast.makeText(this, "WebView cache cleared", Toast.LENGTH_SHORT).show();
-        }));
-        root.addView(menuDrawer, new FrameLayout.LayoutParams(-1, -1, Gravity.RIGHT));
-    }
-
-    private void buildMobileToolbar(FrameLayout root) {
-        mobileToolbar = new LinearLayout(this);
-        mobileToolbar.setOrientation(LinearLayout.HORIZONTAL);
-        mobileToolbar.setGravity(Gravity.CENTER);
-        mobileToolbar.setPadding(dp(6), dp(6), dp(6), dp(6));
-        mobileToolbar.setVisibility(View.GONE);
-        mobileToolbar.setBackground(toolbarBackground());
-
-        Button params = makeToolbarButton("Params");
-        Button graph = makeToolbarButton("Graph");
-        Button run = makeToolbarButton("Run");
-        Button output = makeToolbarButton("Output");
-        Button menu = makeToolbarButton("Menu");
-        mobileToolbar.addView(params, toolbarButtonParams());
-        mobileToolbar.addView(graph, toolbarButtonParams());
-        mobileToolbar.addView(run, toolbarButtonParams());
-        mobileToolbar.addView(output, toolbarButtonParams());
-        mobileToolbar.addView(menu, toolbarButtonParams());
-
-        FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(-1, dp(68));
-        mp.gravity = Gravity.BOTTOM;
-        mp.setMargins(dp(8), 0, dp(8), dp(8));
-        root.addView(mobileToolbar, mp);
-
-        params.setOnClickListener(v -> toggleNodeDrawer());
-        graph.setOnClickListener(v -> returnToGraph());
-        run.setOnClickListener(v -> runComfyQueue());
-        output.setOnClickListener(v -> openLatestOutput());
-        menu.setOnClickListener(v -> toggleMenuDrawer());
-    }
-
-    private LinearLayout.LayoutParams toolbarButtonParams() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(52), 1);
+    private LinearLayout.LayoutParams weightButtonParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1);
         p.setMargins(dp(3), 0, dp(3), 0);
         return p;
     }
 
-    private TextView makeSectionTitle(String text) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextColor(Color.WHITE);
-        t.setTextSize(18);
-        t.setPadding(dp(2), dp(18), dp(2), dp(8));
-        return t;
-    }
+    private void buildBottomToolbar(LinearLayout root) {
+        bottomToolbar = new LinearLayout(this);
+        bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
+        bottomToolbar.setGravity(Gravity.CENTER);
+        bottomToolbar.setPadding(dp(8), dp(8), dp(8), dp(8));
+        bottomToolbar.setBackgroundColor(Color.rgb(15, 23, 42));
+        root.addView(bottomToolbar, new LinearLayout.LayoutParams(-1, dp(72)));
 
-    private View makeMenuAction(String text, Runnable action) {
-        Button b = makeButton(text);
-        b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        b.setPadding(dp(16), 0, dp(16), 0);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
-        p.setMargins(0, 0, 0, dp(10));
-        b.setLayoutParams(p);
-        b.setOnClickListener(v -> {
-            action.run();
-            enterImmersiveMode();
-        });
-        return b;
-    }
+        Button nativeBtn = makeToolbarButton("Native");
+        Button graphBtn = makeToolbarButton("Graph");
+        Button runBtn = makeToolbarButton("Run");
+        Button outputBtn = makeToolbarButton("Output");
+        Button menuBtn = makeToolbarButton("Menu");
+        bottomToolbar.addView(nativeBtn, weightButtonParams());
+        bottomToolbar.addView(graphBtn, weightButtonParams());
+        bottomToolbar.addView(runBtn, weightButtonParams());
+        bottomToolbar.addView(outputBtn, weightButtonParams());
+        bottomToolbar.addView(menuBtn, weightButtonParams());
 
-    private CheckBox makeSettingCheckBox(String key, String text, boolean defaultValue) {
-        CheckBox box = new CheckBox(this);
-        box.setText(text);
-        box.setTextColor(Color.rgb(226, 232, 240));
-        box.setTextSize(16);
-        box.setMinHeight(dp(48));
-        box.setPadding(dp(2), dp(6), dp(2), dp(6));
-        box.setChecked(getBoolSetting(key, defaultValue));
-        box.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            setBoolSetting(key, isChecked);
-            if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) refreshNodeDrawer();
-        });
-        return box;
-    }
-
-    private Button makeButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(16);
-        b.setTextColor(Color.WHITE);
-        b.setSingleLine(true);
-        b.setIncludeFontPadding(false);
-        b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(12)));
-        return b;
-    }
-
-    private Button makeToolbarButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(13);
-        b.setTextColor(Color.WHITE);
-        b.setSingleLine(true);
-        b.setIncludeFontPadding(false);
-        b.setMinHeight(dp(48));
-        b.setMinimumHeight(dp(48));
-        b.setPadding(dp(3), 0, dp(3), 0);
-        b.setBackground(buttonBackground(Color.rgb(31, 41, 55), dp(16)));
-        return b;
-    }
-
-    private Button makeMiniButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(22);
-        b.setTextColor(Color.WHITE);
-        b.setPadding(0, 0, 0, 0);
-        b.setBackground(buttonBackground(Color.argb(220, 31, 41, 55), dp(23)));
-        return b;
-    }
-
-    private Button makeSmallDrawerButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(22);
-        b.setTextColor(Color.WHITE);
-        b.setPadding(0, 0, 0, 0);
-        b.setBackground(buttonBackground(Color.rgb(31, 41, 55), dp(14)));
-        return b;
-    }
-
-    private Button makeTinyActionButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setTextSize(15);
-        b.setTextColor(Color.WHITE);
-        b.setSingleLine(true);
-        b.setIncludeFontPadding(false);
-        b.setPadding(dp(8), 0, dp(8), 0);
-        b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(14)));
-        return b;
-    }
-
-    private Button makeSecondaryActionButton(String text) {
-        Button b = makeTinyActionButton(text);
-        b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(14)));
-        return b;
-    }
-
-    private GradientDrawable buttonBackground(int color, int radius) {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(color);
-        d.setCornerRadius(radius);
-        return d;
-    }
-
-    private GradientDrawable toolbarBackground() {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(Color.argb(240, 17, 24, 39));
-        d.setCornerRadius(dp(24));
-        d.setStroke(dp(1), Color.argb(180, 75, 85, 99));
-        return d;
-    }
-
-    private GradientDrawable drawerBackground() {
-        GradientDrawable d = new GradientDrawable();
-        d.setColor(Color.argb(252, 15, 23, 42));
-        d.setStroke(dp(1), Color.argb(220, 71, 85, 105));
-        return d;
+        nativeBtn.setOnClickListener(v -> showNativeMode());
+        graphBtn.setOnClickListener(v -> showGraphMode());
+        runBtn.setOnClickListener(v -> runWorkflow());
+        outputBtn.setOnClickListener(v -> openLatestOutput());
+        menuBtn.setOnClickListener(v -> showMenuDialog());
     }
 
     @SuppressLint("SetJavaScriptEnabled")
-    private void configureWebView() {
-        WebSettings s = webView.getSettings();
+    private void configureGraphWebView() {
+        WebSettings s = graphWebView.getSettings();
         s.setJavaScriptEnabled(true);
         s.setDomStorageEnabled(true);
         s.setDatabaseEnabled(true);
@@ -473,10 +249,8 @@ public class MainActivity extends Activity {
         s.setSupportZoom(true);
         s.setTextZoom(100);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        webView.setOverScrollMode(View.OVER_SCROLL_NEVER);
-        webView.setScrollbarFadingEnabled(true);
-
-        webView.setWebChromeClient(new WebChromeClient() {
+        graphWebView.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        graphWebView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> callback, FileChooserParams params) {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
@@ -494,559 +268,506 @@ public class MainActivity extends Activity {
                     return true;
                 } catch (Exception e) {
                     filePathCallback = null;
-                    Toast.makeText(MainActivity.this, "No file picker available", Toast.LENGTH_SHORT).show();
+                    toast("No file picker available");
                     return false;
                 }
             }
         });
-
-        webView.setWebViewClient(new WebViewClient() {
+        graphWebView.setWebViewClient(new WebViewClient() {
             @Override
             public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
                 progressBar.setVisibility(View.VISIBLE);
-                statusText.setText("Loading: " + url);
+                statusText.setText("Graph loading: " + url);
             }
 
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
-                statusText.setText("Loaded: " + url);
-                injectMobileLayer();
-                mainHandler.postDelayed(() -> injectMobileLayer(), 800);
-                mainHandler.postDelayed(() -> injectMobileLayer(), 2200);
-                if (getBoolSetting(KEY_OPEN_PARAMS_DEFAULT, false) && topBar.getVisibility() != View.VISIBLE) {
-                    mainHandler.postDelayed(() -> showNodeDrawer(), 800);
-                }
+                statusText.setText("Graph loaded. Native mode stays independent from this page.");
+                injectGraphTouchTweaks();
                 enterImmersiveMode();
             }
         });
     }
 
-    private void testConnection() {
-        String base = getNormalizedUrl();
-        if (base.isEmpty()) {
-            Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
+    private void renderNativeScreen() {
+        apiFields.clear();
+        nativeContent.removeAllViews();
+
+        TextView title = makeTitle("Native workflow");
+        nativeContent.addView(title);
+
+        TextView intro = makeMuted("This screen talks to ComfyUI API directly. WebView is only an advanced Graph mode now.");
+        nativeContent.addView(intro);
+
+        addWorkflowJsonCard();
+
+        if (workflowObject == null) {
+            addEmptyWorkflowHelp();
             return;
         }
-        saveUrl(base);
-        setBusy(true, "Testing /system_stats ...");
-        new Thread(() -> {
-            String message = checkSystemStats(base);
-            mainHandler.post(() -> setBusy(false, message));
-        }).start();
+
+        addQuickActionsCard();
+        addNodeCardsFromWorkflow();
     }
 
-    private String checkSystemStats(String base) {
-        HttpURLConnection c = null;
-        try {
-            URL url = new URL(base + "/system_stats");
-            c = (HttpURLConnection) url.openConnection();
-            c.setConnectTimeout(5000);
-            c.setReadTimeout(5000);
-            int code = c.getResponseCode();
-            if (code >= 200 && code < 300) return "Connection OK. Press Open.";
-            return "HTTP " + code + ". Check URL, port, or tunnel.";
-        } catch (Exception e) {
-            return "Connection failed: " + e.getClass().getSimpleName() + ". Check ComfyUI and URL.";
-        } finally {
-            if (c != null) c.disconnect();
-        }
-    }
+    private void addWorkflowJsonCard() {
+        LinearLayout card = makeCard();
+        nativeContent.addView(card, cardParams());
 
-    private void openCurrentUrl() {
-        String url = getNormalizedUrl();
-        if (url.isEmpty()) {
-            Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        saveUrl(url);
-        showWorkspaceMode();
-        webView.loadUrl(url);
-    }
+        card.addView(makeCardHeader("Workflow API JSON"));
+        card.addView(makeMuted("Load or paste a ComfyUI workflow saved in API format. Native mode edits this JSON, then sends it to /prompt."));
 
-    private void showWorkspaceMode() {
-        topBar.setVisibility(View.GONE);
-        statusText.setVisibility(View.GONE);
-        mobileToolbar.setVisibility(View.VISIBLE);
-        chromeButton.setVisibility(View.VISIBLE);
-        enterImmersiveMode();
-    }
-
-    private void toggleConnectionPanel() {
-        boolean visible = topBar.getVisibility() == View.VISIBLE;
-        topBar.setVisibility(visible ? View.GONE : View.VISIBLE);
-        statusText.setVisibility(visible ? View.GONE : View.VISIBLE);
-        enterImmersiveMode();
-    }
-
-    private void toggleMobileToolbar() {
-        boolean visible = mobileToolbar.getVisibility() == View.VISIBLE;
-        mobileToolbar.setVisibility(visible ? View.GONE : View.VISIBLE);
-        chromeButton.setText(visible ? "☰" : "⋮");
-        enterImmersiveMode();
-    }
-
-    private void toggleNodeDrawer() {
-        if (nodeDrawer.getVisibility() == View.VISIBLE) hideNodeDrawer(); else showNodeDrawer();
-        enterImmersiveMode();
-    }
-
-    private void showNodeDrawer() {
-        hideMenuDrawerIfOpen();
-        updateDrawerWidth(nodeDrawer);
-        nodeDrawer.setVisibility(View.VISIBLE);
-        mobileToolbar.setVisibility(View.GONE);
-        chromeButton.setVisibility(View.GONE);
-        refreshNodeDrawer();
-        enterImmersiveMode();
-    }
-
-    private void hideNodeDrawer() {
-        nodeDrawer.setVisibility(View.GONE);
-        mobileToolbar.setVisibility(View.VISIBLE);
-        chromeButton.setVisibility(View.VISIBLE);
-        enterImmersiveMode();
-    }
-
-    private void toggleMenuDrawer() {
-        if (menuDrawer.getVisibility() == View.VISIBLE) {
-            hideMenuDrawer();
-        } else {
-            hideNodeDrawerIfOpen();
-            updateDrawerWidth(menuDrawer);
-            menuDrawer.setVisibility(View.VISIBLE);
-            mobileToolbar.setVisibility(View.GONE);
-            chromeButton.setVisibility(View.GONE);
-        }
-        enterImmersiveMode();
-    }
-
-    private void hideMenuDrawer() {
-        menuDrawer.setVisibility(View.GONE);
-        mobileToolbar.setVisibility(View.VISIBLE);
-        chromeButton.setVisibility(View.VISIBLE);
-        enterImmersiveMode();
-    }
-
-    private void hideMenuDrawerIfOpen() {
-        if (menuDrawer != null && menuDrawer.getVisibility() == View.VISIBLE) {
-            menuDrawer.setVisibility(View.GONE);
-            mobileToolbar.setVisibility(View.VISIBLE);
-            chromeButton.setVisibility(View.VISIBLE);
-        }
-    }
-
-    private void updateDrawerWidth(View drawer) {
-        FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) drawer.getLayoutParams();
-        p.width = getBoolSetting(KEY_FULL_SCREEN_PARAMS, true) ? -1 : Math.min(dp(420), Math.max(dp(320), getResources().getDisplayMetrics().widthPixels - dp(24)));
-        drawer.setLayoutParams(p);
-    }
-
-    private void refreshNodeDrawer() {
-        nodeList.removeAllViews();
-        addDrawerMessage("Reading workflow parameters...", false);
-        injectMobileLayer();
-        webView.evaluateJavascript(getNodeListScript(), this::renderNodeDrawer);
-    }
-
-    private void renderNodeDrawer(String value) {
-        nodeList.removeAllViews();
-        try {
-            if (value == null || "null".equals(value)) {
-                addDrawerMessage("Could not read workflow. Open a workflow first.", true);
-                return;
-            }
-            JSONArray nodes = new JSONArray(value);
-            int shown = 0;
-            for (int i = 0; i < nodes.length(); i++) {
-                JSONObject node = nodes.getJSONObject(i);
-                JSONArray widgets = node.optJSONArray("widgets");
-                boolean editable = widgets != null && widgets.length() > 0;
-                if (getBoolSetting(KEY_SHOW_ONLY_EDITABLE, true) && !editable) continue;
-                addNodeCard(node, shown + 1);
-                shown++;
-            }
-            if (shown == 0) addDrawerMessage("No editable parameters found. Disable 'Show only editable nodes' in Menu → Settings to inspect all nodes.", true);
-        } catch (JSONException e) {
-            addDrawerMessage("Could not parse ComfyUI node list.", true);
-        } finally {
-            enterImmersiveMode();
-        }
-    }
-
-    private void addNodeCard(JSONObject node, int index) throws JSONException {
-        int id = node.optInt("id", -1);
-        String title = clean(node.optString("title", "Untitled"));
-        String type = clean(node.optString("type", ""));
-        JSONArray widgets = node.optJSONArray("widgets");
-        JSONArray inputs = node.optJSONArray("inputs");
-        JSONArray outputs = node.optJSONArray("outputs");
-        boolean compact = getBoolSetting(KEY_COMPACT_CARDS, false);
-        boolean hideTechnical = getBoolSetting(KEY_HIDE_TECHNICAL, true);
-        boolean oneApply = getBoolSetting(KEY_ONE_APPLY_PER_CARD, true);
-        List<WidgetField> fields = new ArrayList<>();
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        card.setPadding(dp(12), compact ? dp(10) : dp(14), dp(12), compact ? dp(10) : dp(14));
-        card.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(18)));
-        LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
-        cardParams.setMargins(0, 0, 0, compact ? dp(10) : dp(14));
-        nodeList.addView(card, cardParams);
-
-        Button header = makeNodeHeaderButton(index + ". " + title);
-        card.addView(header, new LinearLayout.LayoutParams(-1, compact ? dp(52) : dp(60)));
-        if (!hideTechnical) {
-            card.addView(makeDrawerText("#" + id + (type.isEmpty() ? "" : " · type: " + type), 14, Color.rgb(148, 163, 184)));
-        }
-
-        LinearLayout details = new LinearLayout(this);
-        details.setOrientation(LinearLayout.VERTICAL);
-        details.setVisibility(View.GONE);
-        details.setPadding(dp(2), compact ? dp(8) : dp(10), dp(2), 0);
-        card.addView(details, new LinearLayout.LayoutParams(-1, -2));
-
-        if (widgets != null && widgets.length() > 0) {
-            if (isLoadImageNode(title, type)) addLoadImageActions(details, id, widgets);
-            if (isOutputNode(title, type)) addOutputActions(details);
-            details.addView(makeDrawerText("Editable fields", 16, Color.WHITE));
-            for (int i = 0; i < widgets.length(); i++) {
-                JSONObject w = widgets.getJSONObject(i);
-                String rawName = clean(w.optString("name", "widget_" + i));
-                String labelName = displayWidgetName(title, type, rawName, i);
-                String wType = clean(w.optString("type", ""));
-                String wValue = w.optString("value", "");
-                if (isPseudoUploadWidget(title, type, rawName, labelName)) continue;
-                fields.add(addWidgetEditor(details, id, i, labelName, rawName, wType, wValue, !oneApply));
-            }
-            if (oneApply && !fields.isEmpty()) {
-                Button applyCard = makeTinyActionButton("Apply card");
-                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(56));
-                p.setMargins(0, dp(14), 0, 0);
-                details.addView(applyCard, p);
-                applyCard.setOnClickListener(v -> applyWidgetValues(id, fields));
-            }
-        } else {
-            details.addView(makeDrawerText("No editable widgets", 15, Color.rgb(148, 163, 184)));
-        }
-
-        if (!hideTechnical) {
-            if (inputs != null && inputs.length() > 0) {
-                details.addView(makeDrawerText("\nInputs", 15, Color.WHITE));
-                for (int i = 0; i < inputs.length(); i++) {
-                    JSONObject input = inputs.getJSONObject(i);
-                    details.addView(makeDrawerText("• " + clean(input.optString("name", "input")) + " : " + clean(input.optString("type", "")), 14, Color.rgb(203, 213, 225)));
-                }
-            }
-            if (outputs != null && outputs.length() > 0) {
-                details.addView(makeDrawerText("\nOutputs", 15, Color.WHITE));
-                for (int i = 0; i < outputs.length(); i++) {
-                    JSONObject output = outputs.getJSONObject(i);
-                    details.addView(makeDrawerText("• " + clean(output.optString("name", "output")) + " : " + clean(output.optString("type", "")), 14, Color.rgb(203, 213, 225)));
-                }
-            }
-        }
-
-        header.setOnClickListener(v -> {
-            details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
-            enterImmersiveMode();
-        });
-    }
-
-    private void addLoadImageActions(LinearLayout details, int nodeId, JSONArray widgets) {
-        int imageWidgetIndex = findImageWidgetIndex(widgets);
-        if (imageWidgetIndex < 0) return;
-        TextView title = makeDrawerText("Image input", 16, Color.WHITE);
-        title.setPadding(dp(4), dp(8), dp(4), dp(4));
-        details.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        Button choose = makeTinyActionButton("Choose image from phone");
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
-        p.setMargins(0, 0, 0, dp(10));
-        details.addView(choose, p);
-        choose.setOnClickListener(v -> chooseImageForWidget(nodeId, imageWidgetIndex));
-    }
-
-    private void addOutputActions(LinearLayout details) {
-        TextView title = makeDrawerText("Output", 16, Color.WHITE);
-        title.setPadding(dp(4), dp(8), dp(4), dp(4));
-        details.addView(title, new LinearLayout.LayoutParams(-1, -2));
-
-        Button preview = makeSecondaryActionButton("Preview latest output");
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
-        p.setMargins(0, 0, 0, dp(10));
-        details.addView(preview, p);
-        preview.setOnClickListener(v -> openLatestOutput());
-    }
-
-    private int findImageWidgetIndex(JSONArray widgets) {
-        for (int i = 0; i < widgets.length(); i++) {
-            JSONObject w = widgets.optJSONObject(i);
-            if (w == null) continue;
-            String name = w.optString("name", "").toLowerCase();
-            if (name.equals("image") || name.contains("image")) return i;
-        }
-        return widgets.length() > 0 ? 0 : -1;
-    }
-
-    private boolean isLoadImageNode(String title, String type) {
-        String s = ((title == null ? "" : title) + " " + (type == null ? "" : type)).toLowerCase();
-        return s.contains("load image") || s.contains("loadimage");
-    }
-
-    private boolean isOutputNode(String title, String type) {
-        String s = ((title == null ? "" : title) + " " + (type == null ? "" : type)).toLowerCase();
-        return s.contains("save video") || s.contains("savevideo") || s.contains("save image") || s.contains("saveimage") || s.contains("preview");
-    }
-
-    private boolean isPseudoUploadWidget(String title, String type, String rawName, String labelName) {
-        if (!isLoadImageNode(title, type)) return false;
-        String n = ((rawName == null ? "" : rawName) + " " + (labelName == null ? "" : labelName)).toLowerCase();
-        return n.equals("upload upload") || n.equals("upload") || n.contains("upload button");
-    }
-
-    private WidgetField addWidgetEditor(LinearLayout details, int nodeId, int widgetIndex, String name, String rawName, String type, String value, boolean inlineApply) {
-        boolean compact = getBoolSetting(KEY_COMPACT_CARDS, false);
-        TextView label = makeDrawerText("• " + name, 16, Color.rgb(226, 232, 240));
-        label.setPadding(dp(4), compact ? dp(8) : dp(12), dp(4), dp(4));
-        details.addView(label, new LinearLayout.LayoutParams(-1, -2));
-
-        if (!getBoolSetting(KEY_HIDE_TECHNICAL, true) && !name.equals(rawName)) {
-            details.addView(makeDrawerText("raw: " + rawName + (type.isEmpty() ? "" : " [" + type + "]"), 12, Color.rgb(148, 163, 184)));
-        }
+        workflowJsonEditor = new EditText(this);
+        workflowJsonEditor.setText(workflowObject == null ? "" : formatJson(workflowObject));
+        workflowJsonEditor.setTextColor(Color.WHITE);
+        workflowJsonEditor.setHintTextColor(Color.rgb(148, 163, 184));
+        workflowJsonEditor.setHint("Paste API workflow JSON here");
+        workflowJsonEditor.setTextSize(13);
+        workflowJsonEditor.setGravity(Gravity.TOP | Gravity.LEFT);
+        workflowJsonEditor.setMinLines(5);
+        workflowJsonEditor.setMaxLines(10);
+        workflowJsonEditor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        workflowJsonEditor.setPadding(dp(12), dp(10), dp(12), dp(10));
+        workflowJsonEditor.setBackground(buttonBackground(Color.rgb(15, 23, 42), dp(14)));
+        LinearLayout.LayoutParams jsonParams = new LinearLayout.LayoutParams(-1, dp(180));
+        jsonParams.setMargins(0, dp(10), 0, dp(10));
+        card.addView(workflowJsonEditor, jsonParams);
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL);
-        details.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
 
-        EditText valueInput = new EditText(this);
-        valueInput.setText(value);
-        valueInput.setTextSize(17);
-        valueInput.setTextColor(Color.WHITE);
-        valueInput.setHintTextColor(Color.rgb(148, 163, 184));
-        valueInput.setPadding(dp(12), 0, dp(12), 0);
-        valueInput.setMinHeight(compact ? dp(52) : dp(58));
-        valueInput.setSelectAllOnFocus(false);
-        valueInput.setSingleLine(shouldUseSingleLine(name, value));
-        if (!shouldUseSingleLine(name, value)) {
-            valueInput.setGravity(Gravity.TOP | Gravity.LEFT);
-            valueInput.setMinLines(3);
-            valueInput.setMaxLines(8);
-        }
-        if (isNumericField(name, type, value)) {
-            valueInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
-        } else {
-            valueInput.setInputType(valueInput.isSingleLine() ? InputType.TYPE_CLASS_TEXT : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
-        }
-        valueInput.setBackground(buttonBackground(Color.rgb(15, 23, 42), dp(14)));
-        row.addView(valueInput, new LinearLayout.LayoutParams(0, -2, 1));
-
-        if (inlineApply) {
-            Button apply = makeTinyActionButton("Apply");
-            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(92), compact ? dp(52) : dp(58));
-            ap.setMargins(dp(8), 0, 0, 0);
-            row.addView(apply, ap);
-            apply.setOnClickListener(v -> applyWidgetValue(nodeId, widgetIndex, valueInput.getText().toString()));
-        }
-        return new WidgetField(widgetIndex, valueInput);
+        Button loadFile = makeSecondaryButton("Load JSON file");
+        Button applyJson = makePrimaryButton("Apply JSON");
+        row.addView(loadFile, weightButtonParams());
+        row.addView(applyJson, weightButtonParams());
+        loadFile.setOnClickListener(v -> chooseWorkflowJsonFile());
+        applyJson.setOnClickListener(v -> applyWorkflowJsonFromEditor());
     }
 
-    private String displayWidgetName(String nodeTitle, String nodeType, String rawName, int index) {
-        if (!getBoolSetting(KEY_HUMAN_LABELS, true)) return rawName;
-        String n = rawName == null ? "" : rawName;
-        String title = (nodeTitle == null ? "" : nodeTitle).toLowerCase();
-        String type = (nodeType == null ? "" : nodeType).toLowerCase();
-        if (n.equals("noise_seed") || n.equals("seed")) return "Seed";
-        if (n.equals("ckpt_name")) return "Checkpoint";
-        if (n.equals("lora_name")) return "LoRA";
-        if (n.equals("text_encoder")) return "Text encoder";
-        if (n.equals("sampler_name")) return "Sampler";
-        if (n.equals("scheduler")) return "Scheduler";
-        if (n.equals("steps")) return "Steps";
-        if (n.equals("cfg")) return "CFG";
-        if (n.equals("width")) return "Width";
-        if (n.equals("height")) return "Height";
-        if (n.equals("batch_size")) return "Batch size";
-        if (n.equals("filename_prefix")) return "Filename prefix";
-        if (n.equals("format")) return "Format";
-        if (n.equals("codec")) return "Codec";
-        if (n.equals("image")) return "Image";
-        if (n.equals("upload")) return "Upload";
-        if ((title.contains("image to video") || type.contains("ltx") || title.contains("ltx")) && n.startsWith("value")) {
-            if (index == 0) return "Prompt";
-            if (index == 1) return "Prompt enhance";
-            if (index == 2) return "Width";
-            if (index == 3) return "Height";
-            if (index == 4) return "Duration / seconds";
-            if (index == 5) return "Steps";
-        }
-        if (n.startsWith("value_")) return "Parameter " + n.substring("value_".length());
-        if (n.equals("value")) return "Value";
-        return prettifyName(n);
+    private void addEmptyWorkflowHelp() {
+        LinearLayout card = makeCard();
+        nativeContent.addView(card, cardParams());
+        card.addView(makeCardHeader("No API workflow loaded"));
+        card.addView(makeMuted("In ComfyUI on your PC, export/save the workflow in API format, then load that JSON here. After that this app can upload images, run generation and open results without relying on the desktop canvas."));
     }
 
-    private String prettifyName(String raw) {
-        if (raw == null || raw.isEmpty()) return "Parameter";
-        String[] parts = raw.replace('_', ' ').split(" ");
-        StringBuilder out = new StringBuilder();
-        for (String part : parts) {
-            if (part.isEmpty()) continue;
-            if (out.length() > 0) out.append(' ');
-            out.append(Character.toUpperCase(part.charAt(0))).append(part.substring(1));
-        }
-        return out.length() == 0 ? raw : out.toString();
-    }
+    private void addQuickActionsCard() {
+        LinearLayout card = makeCard();
+        nativeContent.addView(card, cardParams());
+        card.addView(makeCardHeader("Run controls"));
 
-    private boolean shouldUseSingleLine(String name, String value) {
-        String lower = (name == null ? "" : name).toLowerCase();
-        if (lower.contains("prompt") || lower.contains("text")) return false;
-        return value == null || (value.length() < 48 && !value.contains("\n"));
-    }
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        card.addView(row, new LinearLayout.LayoutParams(-1, -2));
 
-    private boolean isNumericField(String name, String type, String value) {
-        String lower = ((name == null ? "" : name) + " " + (type == null ? "" : type)).toLowerCase();
-        if (lower.contains("width") || lower.contains("height") || lower.contains("step") || lower.contains("seed") || lower.contains("cfg") || lower.contains("duration") || lower.contains("batch") || lower.contains("fps") || lower.contains("frame")) return true;
-        if (value == null || value.isEmpty()) return false;
-        try {
-            Double.parseDouble(value);
-            return true;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private Button makeNodeHeaderButton(String text) {
-        Button b = new Button(this);
-        b.setText(text);
-        b.setAllCaps(false);
-        b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
-        b.setTextSize(18);
-        b.setTextColor(Color.WHITE);
-        b.setSingleLine(true);
-        b.setIncludeFontPadding(false);
-        b.setPadding(dp(14), 0, dp(14), 0);
-        b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(16)));
-        return b;
-    }
-
-    private TextView makeDrawerText(String text, int size, int color) {
-        TextView t = new TextView(this);
-        t.setText(text);
-        t.setTextSize(size);
-        t.setTextColor(color);
-        t.setPadding(dp(4), dp(4), dp(4), dp(4));
-        return t;
-    }
-
-    private void addDrawerMessage(String text, boolean error) {
-        TextView message = makeDrawerText(text, 16, error ? Color.rgb(248, 113, 113) : Color.rgb(203, 213, 225));
-        message.setPadding(dp(6), dp(12), dp(6), dp(12));
-        nodeList.addView(message, new LinearLayout.LayoutParams(-1, -2));
-    }
-
-    private String clean(String value) {
-        if (value == null) return "";
-        String s = value.replace('\n', ' ').replace('\r', ' ').trim();
-        if (s.length() > 160) s = s.substring(0, 157) + "...";
-        return s;
-    }
-
-    private String getNodeListScript() {
-        return "(function(){"
-                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
-                + "var nodes=(graph&&(graph._nodes||graph.nodes))||[];"
-                + "return nodes.map(function(n){"
-                + "function text(v){if(v===undefined||v===null)return '';try{return String(v);}catch(e){return '';}}"
-                + "function list(items){return (items||[]).map(function(x){return {name:text(x&&x.name),type:text(x&&x.type)};});}"
-                + "return {id:n.id||0,title:text(n.title||n.type||'Untitled'),type:text(n.type||''),widgets:(n.widgets||[]).map(function(w){return {name:text(w&&w.name),type:text(w&&w.type),value:text(w&&w.value)};}),inputs:list(n.inputs),outputs:list(n.outputs)};"
-                + "});"
-                + "})();";
-    }
-
-    private void applyWidgetValue(int nodeId, int widgetIndex, String rawValue) {
-        JSONArray arr = new JSONArray();
-        try {
-            JSONObject item = new JSONObject();
-            item.put("index", widgetIndex);
-            item.put("value", rawValue);
-            arr.put(item);
-        } catch (JSONException ignored) {}
-        applyWidgetValuesJson(nodeId, arr);
-    }
-
-    private void applyWidgetValues(int nodeId, List<WidgetField> fields) {
-        JSONArray arr = new JSONArray();
-        for (WidgetField field : fields) {
-            try {
-                JSONObject item = new JSONObject();
-                item.put("index", field.widgetIndex);
-                item.put("value", field.input.getText().toString());
-                arr.put(item);
-            } catch (JSONException ignored) {}
-        }
-        applyWidgetValuesJson(nodeId, arr);
-    }
-
-    private void applyWidgetValuesJson(int nodeId, JSONArray values) {
-        String script = "(function(){"
-                + "var values=" + values.toString() + ";"
-                + "function convert(raw){if(raw==='true')return true;if(raw==='false')return false;if(raw!==''&&!isNaN(Number(raw)))return Number(raw);return raw;}"
-                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
-                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
-                + "if(!graph)return false;"
-                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
-                + "if(!n||!n.widgets)return false;"
-                + "for(var i=0;i<values.length;i++){var item=values[i];var idx=item.index;var raw=item.value;var value=convert(raw);if(!n.widgets[idx])continue;var w=n.widgets[idx];w.value=value;try{if(w.callback)w.callback.call(w,value,canvas,n,n.pos||[0,0],null);}catch(e){}try{if(n.onWidgetChanged)n.onWidgetChanged(w.name,value,w);}catch(e){}}"
-                + "try{if(canvas&&canvas.setDirty)canvas.setDirty(true,true);}catch(e){}try{if(graph.setDirtyCanvas)graph.setDirtyCanvas(true,true);}catch(e){}return true;})();";
-        webView.evaluateJavascript(script, value -> {
-            if ("true".equals(value)) {
-                Toast.makeText(this, "Applied", Toast.LENGTH_SHORT).show();
-                if (getBoolSetting(KEY_AUTO_REFRESH_AFTER_APPLY, true)) refreshNodeDrawer();
-            } else {
-                Toast.makeText(this, "Could not apply widget value", Toast.LENGTH_SHORT).show();
-            }
+        Button apply = makeSecondaryButton("Apply fields");
+        Button run = makePrimaryButton("Run workflow");
+        row.addView(apply, weightButtonParams());
+        row.addView(run, weightButtonParams());
+        apply.setOnClickListener(v -> {
+            applyFieldsToWorkflowObject();
+            saveWorkflowToPrefs();
+            toast("Workflow fields applied");
+            renderNativeScreen();
         });
+        run.setOnClickListener(v -> runWorkflow());
+
+        Button output = makeSecondaryButton("Open latest output");
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(50));
+        p.setMargins(dp(3), dp(10), dp(3), 0);
+        card.addView(output, p);
+        output.setOnClickListener(v -> openLatestOutput());
+    }
+
+    private void addNodeCardsFromWorkflow() {
+        List<String> nodeIds = sortedWorkflowKeys();
+        for (String nodeId : nodeIds) {
+            JSONObject node = workflowObject.optJSONObject(nodeId);
+            if (node == null) continue;
+            JSONObject inputs = node.optJSONObject("inputs");
+            String classType = node.optString("class_type", "Node");
+            if (inputs == null) continue;
+            if (!nodeHasUsefulInputs(classType, inputs)) continue;
+            addApiNodeCard(nodeId, classType, inputs);
+        }
+    }
+
+    private void addApiNodeCard(String nodeId, String classType, JSONObject inputs) {
+        LinearLayout card = makeCard();
+        nativeContent.addView(card, cardParams());
+
+        card.addView(makeCardHeader("#" + nodeId + "  " + prettifyClassType(classType)));
+
+        if (isLoadImageClass(classType)) {
+            TextView label = makeLabel("Image input");
+            card.addView(label);
+            String imageKey = findImageInputKey(inputs);
+            Button choose = makePrimaryButton("Choose image from phone");
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
+            p.setMargins(0, 0, 0, dp(12));
+            card.addView(choose, p);
+            choose.setOnClickListener(v -> chooseImageForField(nodeId, imageKey));
+        }
+
+        if (isOutputClass(classType)) {
+            TextView label = makeLabel("Output");
+            card.addView(label);
+            Button preview = makeSecondaryButton("Preview latest output");
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
+            p.setMargins(0, 0, 0, dp(12));
+            card.addView(preview, p);
+            preview.setOnClickListener(v -> openLatestOutput());
+        }
+
+        List<String> keys = sortedInputKeys(inputs);
+        boolean added = false;
+        for (String key : keys) {
+            Object value = inputs.opt(key);
+            if (!isEditablePrimitive(value)) continue;
+            addApiField(card, nodeId, key, value, classType);
+            added = true;
+        }
+        if (!added) {
+            card.addView(makeMuted("No directly editable primitive inputs in this node."));
+        }
+    }
+
+    private void addApiField(LinearLayout card, String nodeId, String key, Object value, String classType) {
+        String label = humanLabel(key, classType);
+        card.addView(makeLabel(label));
+
+        EditText editor = new EditText(this);
+        editor.setText(value == JSONObject.NULL ? "" : String.valueOf(value));
+        editor.setTextColor(Color.WHITE);
+        editor.setHintTextColor(Color.rgb(148, 163, 184));
+        editor.setTextSize(17);
+        editor.setPadding(dp(12), 0, dp(12), 0);
+        editor.setBackground(buttonBackground(Color.rgb(15, 23, 42), dp(14)));
+        editor.setSelectAllOnFocus(false);
+
+        boolean multiline = isMultilineField(key, value);
+        editor.setSingleLine(!multiline);
+        if (multiline) {
+            editor.setGravity(Gravity.TOP | Gravity.LEFT);
+            editor.setMinLines(3);
+            editor.setMaxLines(8);
+            editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        } else if (isNumericValue(value) || isNumericKey(key)) {
+            editor.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        } else {
+            editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        }
+
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, multiline ? dp(116) : dp(56));
+        p.setMargins(0, 0, 0, dp(12));
+        card.addView(editor, p);
+        apiFields.add(new ApiField(nodeId, key, editor));
+    }
+
+    private void showNativeMode() {
+        nativeScroll.setVisibility(View.VISIBLE);
+        graphWebView.setVisibility(View.GONE);
+        renderNativeScreen();
+        statusText.setText("Native mode. Upload, run and output are handled through ComfyUI API.");
         enterImmersiveMode();
     }
 
-    private void chooseImageForWidget(int nodeId, int imageWidgetIndex) {
+    private void showGraphMode() {
+        saveUrl();
+        nativeScroll.setVisibility(View.GONE);
+        graphWebView.setVisibility(View.VISIBLE);
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            toast("Enter ComfyUI URL first");
+            return;
+        }
+        String current = graphWebView.getUrl();
+        if (current == null || !current.startsWith(base) || current.contains("/view")) {
+            graphWebView.loadUrl(base);
+        }
+        statusText.setText("Graph mode is advanced/fallback. Native mode remains available.");
+        enterImmersiveMode();
+    }
+
+    private void chooseWorkflowJsonFile() {
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        try {
+            startActivityForResult(Intent.createChooser(intent, "Choose API workflow JSON"), WORKFLOW_PICKER_REQUEST);
+        } catch (Exception e) {
+            toast("No file picker available");
+        }
+    }
+
+    private void applyWorkflowJsonFromEditor() {
+        try {
+            workflowObject = new JSONObject(workflowJsonEditor.getText().toString());
+            saveWorkflowToPrefs();
+            toast("Workflow JSON loaded");
+            renderNativeScreen();
+        } catch (JSONException e) {
+            toast("Invalid workflow JSON");
+        }
+    }
+
+    private void chooseImageForField(String nodeId, String inputKey) {
+        if (inputKey == null || inputKey.trim().isEmpty()) {
+            toast("Image input not found in this node");
+            return;
+        }
         pendingImageNodeId = nodeId;
-        pendingImageWidgetIndex = imageWidgetIndex;
+        pendingImageInputKey = inputKey;
         Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("image/*");
         try {
+            toast("Opening image picker...");
             startActivityForResult(Intent.createChooser(intent, "Choose image"), IMAGE_PICKER_REQUEST);
         } catch (Exception e) {
-            Toast.makeText(this, "No image picker available", Toast.LENGTH_SHORT).show();
+            toast("No image picker available");
         }
     }
 
     private void uploadPickedImage(Uri uri) {
-        if (uri == null || pendingImageNodeId < 0 || pendingImageWidgetIndex < 0) return;
+        if (uri == null || pendingImageNodeId == null || pendingImageInputKey == null) return;
         String base = getNormalizedUrl();
         if (base.isEmpty()) {
-            Toast.makeText(this, "Enter ComfyUI URL first", Toast.LENGTH_SHORT).show();
+            toast("Enter ComfyUI URL first");
             return;
         }
-        Toast.makeText(this, "Uploading image...", Toast.LENGTH_SHORT).show();
+        setBusy(true, "Uploading image...");
         new Thread(() -> {
             try {
                 String name = getDisplayName(uri);
                 String mime = getContentResolver().getType(uri);
                 byte[] bytes = readBytes(uri);
                 String uploadedName = uploadImageMultipart(base, bytes, name, mime);
-                int nodeId = pendingImageNodeId;
-                int widgetIndex = pendingImageWidgetIndex;
+                setWorkflowInput(pendingImageNodeId, pendingImageInputKey, uploadedName);
+                saveWorkflowToPrefs();
                 mainHandler.post(() -> {
-                    Toast.makeText(this, "Uploaded: " + uploadedName, Toast.LENGTH_SHORT).show();
-                    applyWidgetValue(nodeId, widgetIndex, uploadedName);
+                    setBusy(false, "Uploaded image: " + uploadedName);
+                    toast("Image selected: " + uploadedName);
+                    renderNativeScreen();
                 });
             } catch (Exception e) {
-                mainHandler.post(() -> Toast.makeText(this, "Image upload failed: " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show());
+                mainHandler.post(() -> setBusy(false, "Image upload failed: " + e.getClass().getSimpleName()));
             }
         }).start();
+    }
+
+    private void runWorkflow() {
+        if (workflowObject == null) {
+            toast("Load API workflow JSON first");
+            return;
+        }
+        saveUrl();
+        applyFieldsToWorkflowObject();
+        saveWorkflowToPrefs();
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            toast("Enter ComfyUI URL first");
+            return;
+        }
+        String body;
+        try {
+            JSONObject payload = new JSONObject();
+            payload.put("prompt", workflowObject);
+            payload.put("client_id", "android-remote-" + System.currentTimeMillis());
+            body = payload.toString();
+        } catch (JSONException e) {
+            toast("Could not build prompt JSON");
+            return;
+        }
+
+        setBusy(true, "Sending prompt to ComfyUI...");
+        new Thread(() -> {
+            try {
+                String response = postJson(base + "/prompt", body);
+                JSONObject json = new JSONObject(response);
+                String promptId = json.optString("prompt_id", "");
+                if (promptId.isEmpty()) throw new IllegalStateException("No prompt_id");
+                currentPromptId = promptId;
+                pollAttempts = 0;
+                mainHandler.post(() -> {
+                    setBusy(false, "Queued prompt: " + promptId);
+                    pollPromptHistory();
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> setBusy(false, "Run failed: " + e.getClass().getSimpleName()));
+            }
+        }).start();
+    }
+
+    private void pollPromptHistory() {
+        if (currentPromptId == null || currentPromptId.isEmpty()) return;
+        pollAttempts++;
+        String promptId = currentPromptId;
+        String base = getNormalizedUrl();
+        statusText.setText("Waiting for output... attempt " + pollAttempts);
+        new Thread(() -> {
+            try {
+                String body = getText(base + "/history/" + enc(promptId));
+                OutputFile file = findLatestOutputFile(new JSONObject(body));
+                if (file != null) {
+                    String outputUrl = base + "/view?filename=" + enc(file.filename) + "&type=" + enc(file.type) + "&subfolder=" + enc(file.subfolder);
+                    lastOutputUrl = outputUrl;
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_LAST_OUTPUT_URL, outputUrl).apply();
+                    mainHandler.post(() -> statusText.setText("Output ready. Press Output to open it."));
+                    return;
+                }
+            } catch (Exception ignored) {
+            }
+            if (pollAttempts < 120) {
+                mainHandler.postDelayed(this::pollPromptHistory, 2000);
+            } else {
+                mainHandler.post(() -> statusText.setText("Timed out waiting for output. You can still check Output later."));
+            }
+        }).start();
+    }
+
+    private void openLatestOutput() {
+        saveUrl();
+        if (lastOutputUrl != null && !lastOutputUrl.trim().isEmpty()) {
+            openExternalUrl(lastOutputUrl);
+            return;
+        }
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            toast("Enter ComfyUI URL first");
+            return;
+        }
+        setBusy(true, "Looking for latest output...");
+        new Thread(() -> {
+            try {
+                String body = getText(base + "/history");
+                OutputFile file = findLatestOutputFile(new JSONObject(body));
+                if (file == null) throw new IllegalStateException("No output");
+                String outputUrl = base + "/view?filename=" + enc(file.filename) + "&type=" + enc(file.type) + "&subfolder=" + enc(file.subfolder);
+                lastOutputUrl = outputUrl;
+                getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_LAST_OUTPUT_URL, outputUrl).apply();
+                mainHandler.post(() -> {
+                    setBusy(false, "Opening latest output externally.");
+                    openExternalUrl(outputUrl);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> setBusy(false, "No output found yet"));
+            }
+        }).start();
+    }
+
+    private void openExternalUrl(String url) {
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+            startActivity(intent);
+        } catch (Exception e) {
+            toast("No app can open output URL");
+        }
+    }
+
+    private void showMenuDialog() {
+        String[] items = new String[] {
+                "Load API workflow JSON",
+                "Apply JSON editor",
+                "Test connection",
+                "Clear graph WebView cache",
+                "Show URL panel"
+        };
+        new AlertDialog.Builder(this)
+                .setTitle("Menu")
+                .setItems(items, (dialog, which) -> {
+                    if (which == 0) chooseWorkflowJsonFile();
+                    if (which == 1) applyWorkflowJsonFromEditor();
+                    if (which == 2) testConnection();
+                    if (which == 3) {
+                        graphWebView.clearCache(true);
+                        graphWebView.clearHistory();
+                        toast("Graph cache cleared");
+                    }
+                    if (which == 4) topBar.setVisibility(topBar.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+                })
+                .show();
+    }
+
+    private void testConnection() {
+        saveUrl();
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            toast("Enter ComfyUI URL first");
+            return;
+        }
+        setBusy(true, "Testing /system_stats...");
+        new Thread(() -> {
+            try {
+                String body = getText(base + "/system_stats");
+                mainHandler.post(() -> setBusy(false, body.isEmpty() ? "Connection OK" : "Connection OK. ComfyUI API reachable."));
+            } catch (Exception e) {
+                mainHandler.post(() -> setBusy(false, "Connection failed: " + e.getClass().getSimpleName()));
+            }
+        }).start();
+    }
+
+    private void applyFieldsToWorkflowObject() {
+        if (workflowObject == null) return;
+        for (ApiField field : apiFields) {
+            setWorkflowInput(field.nodeId, field.inputKey, coerceInputValue(field.editor.getText().toString()));
+        }
+    }
+
+    private Object coerceInputValue(String raw) {
+        if (raw == null) return "";
+        String s = raw.trim();
+        if ("true".equalsIgnoreCase(s)) return true;
+        if ("false".equalsIgnoreCase(s)) return false;
+        if (s.matches("-?\\d+")) {
+            try {
+                long l = Long.parseLong(s);
+                if (l <= Integer.MAX_VALUE && l >= Integer.MIN_VALUE) return (int) l;
+                return l;
+            } catch (Exception ignored) {}
+        }
+        if (s.matches("-?\\d+\\.\\d+")) {
+            try {
+                return Double.parseDouble(s);
+            } catch (Exception ignored) {}
+        }
+        return raw;
+    }
+
+    private void setWorkflowInput(String nodeId, String inputKey, Object value) {
+        if (workflowObject == null) return;
+        JSONObject node = workflowObject.optJSONObject(nodeId);
+        if (node == null) return;
+        JSONObject inputs = node.optJSONObject("inputs");
+        if (inputs == null) return;
+        try {
+            inputs.put(inputKey, value);
+        } catch (JSONException ignored) {}
+    }
+
+    private void saveWorkflowToPrefs() {
+        if (workflowObject == null) return;
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_WORKFLOW_API_JSON, workflowObject.toString())
+                .apply();
+    }
+
+    private void saveUrl() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_URL, getNormalizedUrl())
+                .apply();
+    }
+
+    private String getNormalizedUrl() {
+        String raw = urlInput.getText().toString().trim();
+        if (raw.isEmpty()) return "";
+        if (!raw.startsWith("http://") && !raw.startsWith("https://")) raw = "http://" + raw;
+        while (raw.endsWith("/")) raw = raw.substring(0, raw.length() - 1);
+        return raw;
     }
 
     private byte[] readBytes(Uri uri) throws Exception {
@@ -1061,6 +782,10 @@ public class MainActivity extends Activity {
         } finally {
             in.close();
         }
+    }
+
+    private String readUriText(Uri uri) throws Exception {
+        return new String(readBytes(uri), "UTF-8");
     }
 
     private String getDisplayName(Uri uri) {
@@ -1099,8 +824,7 @@ public class MainActivity extends Activity {
             out.flush();
             out.close();
             int code = c.getResponseCode();
-            InputStream response = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-            String body = readStream(response);
+            String body = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
             if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + body);
             JSONObject json = new JSONObject(body);
             return json.optString("name", filename);
@@ -1123,6 +847,43 @@ public class MainActivity extends Activity {
         out.write("\r\n".getBytes("UTF-8"));
     }
 
+    private String postJson(String url, String jsonBody) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(30000);
+            c.setDoOutput(true);
+            c.setRequestMethod("POST");
+            c.setRequestProperty("Content-Type", "application/json; charset=utf-8");
+            OutputStream out = c.getOutputStream();
+            out.write(jsonBody.getBytes("UTF-8"));
+            out.flush();
+            out.close();
+            int code = c.getResponseCode();
+            String body = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
+            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + body);
+            return body;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private String getText(String url) throws Exception {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL(url).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(20000);
+            int code = c.getResponseCode();
+            String body = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
+            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + body);
+            return body;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
     private String readStream(InputStream in) throws Exception {
         if (in == null) return "";
         try {
@@ -1134,38 +895,6 @@ public class MainActivity extends Activity {
         } finally {
             in.close();
         }
-    }
-
-    private void openLatestOutput() {
-        String base = getNormalizedUrl();
-        if (base.isEmpty()) {
-            Toast.makeText(this, "Enter ComfyUI URL first", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        Toast.makeText(this, "Opening latest output...", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            HttpURLConnection c = null;
-            try {
-                URL url = new URL(base + "/history");
-                c = (HttpURLConnection) url.openConnection();
-                c.setConnectTimeout(8000);
-                c.setReadTimeout(15000);
-                String body = readStream(c.getInputStream());
-                OutputFile file = findLatestOutputFile(new JSONObject(body));
-                if (file == null) throw new IllegalStateException("No output files");
-                String viewUrl = base + "/view?filename=" + enc(file.filename) + "&type=" + enc(file.type) + "&subfolder=" + enc(file.subfolder);
-                mainHandler.post(() -> {
-                    hideNodeDrawerIfOpen();
-                    hideMenuDrawerIfOpen();
-                    webView.loadUrl(viewUrl);
-                    Toast.makeText(this, "Latest output", Toast.LENGTH_SHORT).show();
-                });
-            } catch (Exception e) {
-                mainHandler.post(() -> Toast.makeText(this, "No output found yet", Toast.LENGTH_LONG).show());
-            } finally {
-                if (c != null) c.disconnect();
-            }
-        }).start();
     }
 
     private OutputFile findLatestOutputFile(JSONObject history) throws JSONException {
@@ -1204,85 +933,205 @@ public class MainActivity extends Activity {
         return URLEncoder.encode(s == null ? "" : s, "UTF-8");
     }
 
-    private void returnToGraph() {
-        hideNodeDrawerIfOpen();
-        hideMenuDrawerIfOpen();
-        injectMobileLayer();
-        boolean aggressive = getBoolSetting(KEY_AGGRESSIVE_GRAPH_RETURN, true);
-        String overlayPart = aggressive ? "try{[].slice.call(document.querySelectorAll('.p-dialog-mask,.p-component-overlay,.p-dialog,.p-sidebar,.p-drawer,.p-overlaypanel')).forEach(function(el){el.style.display='none';});}catch(e){}" : "";
-        String script = "(function(){function esc(){try{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));}catch(e){}}esc();esc();function info(el){return ((el.innerText||el.textContent||'')+' '+(el.title||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();}function clickByWords(words){var els=[].slice.call(document.querySelectorAll('button,[role=button],a,.p-tab,.p-button'));for(var i=0;i<els.length;i++){var t=info(els[i]);for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0){els[i].click();return true;}}}return false;}var closed=0;[].slice.call(document.querySelectorAll('button,[role=button]')).forEach(function(el){var t=info(el);if(t==='×'||t.indexOf('close')>=0||t.indexOf('dismiss')>=0){try{el.click();closed++;}catch(e){}}});var clicked=clickByWords(['graph','workflow','editor']);" + overlayPart + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);try{if(canvas&&canvas.canvas){canvas.canvas.focus();canvas.setDirty&&canvas.setDirty(true,true);}}catch(e){}return clicked||closed>0||!!canvas;})();";
-        webView.evaluateJavascript(script, value -> {
-            if (!"true".equals(value)) Toast.makeText(this, "Could not return to graph", Toast.LENGTH_SHORT).show();
-        });
-        enterImmersiveMode();
+    private boolean nodeHasUsefulInputs(String classType, JSONObject inputs) {
+        if (isLoadImageClass(classType) || isOutputClass(classType)) return true;
+        Iterator<String> keys = inputs.keys();
+        while (keys.hasNext()) {
+            if (isEditablePrimitive(inputs.opt(keys.next()))) return true;
+        }
+        return false;
     }
 
-    private void hideNodeDrawerIfOpen() {
-        if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) {
-            nodeDrawer.setVisibility(View.GONE);
-            mobileToolbar.setVisibility(View.VISIBLE);
-            chromeButton.setVisibility(View.VISIBLE);
+    private List<String> sortedWorkflowKeys() {
+        List<String> keys = new ArrayList<>();
+        Iterator<String> it = workflowObject.keys();
+        while (it.hasNext()) keys.add(it.next());
+        Collections.sort(keys, (a, b) -> {
+            try {
+                return Integer.compare(Integer.parseInt(a), Integer.parseInt(b));
+            } catch (Exception ignored) {
+                return a.compareTo(b);
+            }
+        });
+        return keys;
+    }
+
+    private List<String> sortedInputKeys(JSONObject inputs) {
+        List<String> keys = new ArrayList<>();
+        Iterator<String> it = inputs.keys();
+        while (it.hasNext()) keys.add(it.next());
+        Collections.sort(keys);
+        return keys;
+    }
+
+    private boolean isEditablePrimitive(Object value) {
+        return value == JSONObject.NULL || value instanceof String || value instanceof Number || value instanceof Boolean;
+    }
+
+    private boolean isNumericValue(Object value) {
+        return value instanceof Number;
+    }
+
+    private boolean isNumericKey(String key) {
+        String k = key.toLowerCase();
+        return k.contains("width") || k.contains("height") || k.contains("step") || k.contains("seed") || k.contains("cfg") || k.contains("duration") || k.contains("batch") || k.contains("fps") || k.contains("frame");
+    }
+
+    private boolean isMultilineField(String key, Object value) {
+        String k = key.toLowerCase();
+        return k.contains("prompt") || k.contains("text") || String.valueOf(value).length() > 80;
+    }
+
+    private boolean isLoadImageClass(String classType) {
+        String c = classType.toLowerCase();
+        return c.contains("loadimage") || c.contains("load image");
+    }
+
+    private boolean isOutputClass(String classType) {
+        String c = classType.toLowerCase();
+        return c.contains("saveimage") || c.contains("save image") || c.contains("savevideo") || c.contains("save video") || c.contains("previewimage") || c.contains("preview image");
+    }
+
+    private String findImageInputKey(JSONObject inputs) {
+        Iterator<String> keys = inputs.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if ("image".equalsIgnoreCase(key) || key.toLowerCase().contains("image")) return key;
+        }
+        return "image";
+    }
+
+    private String humanLabel(String key, String classType) {
+        String k = key.toLowerCase();
+        if (k.equals("ckpt_name")) return "Checkpoint";
+        if (k.equals("lora_name")) return "LoRA";
+        if (k.equals("text_encoder")) return "Text encoder";
+        if (k.equals("seed") || k.equals("noise_seed")) return "Seed";
+        if (k.equals("steps")) return "Steps";
+        if (k.equals("cfg")) return "CFG";
+        if (k.equals("width")) return "Width";
+        if (k.equals("height")) return "Height";
+        if (k.equals("filename_prefix")) return "Filename prefix";
+        if (k.equals("image")) return "Image";
+        if (k.equals("text") || k.equals("prompt") || k.equals("positive")) return "Prompt";
+        return prettifyClassType(key.replace('_', ' '));
+    }
+
+    private String prettifyClassType(String value) {
+        if (value == null || value.isEmpty()) return "Node";
+        String spaced = value.replace('_', ' ').replaceAll("([a-z])([A-Z])", "$1 $2");
+        return spaced.trim();
+    }
+
+    private String formatJson(JSONObject json) {
+        try {
+            return json.toString(2);
+        } catch (JSONException e) {
+            return json.toString();
         }
     }
 
-    private void saveUrl(String url) {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).apply();
+    private LinearLayout makeCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setPadding(dp(14), dp(14), dp(14), dp(14));
+        card.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(22)));
+        return card;
     }
 
-    private String getNormalizedUrl() {
-        String raw = urlInput.getText().toString().trim();
-        if (raw.isEmpty()) return "";
-        if (!raw.startsWith("http://") && !raw.startsWith("https://")) raw = "http://" + raw;
-        while (raw.endsWith("/")) raw = raw.substring(0, raw.length() - 1);
-        return raw;
+    private LinearLayout.LayoutParams cardParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.setMargins(0, 0, 0, dp(14));
+        return p;
     }
 
-    private boolean getBoolSetting(String key, boolean defaultValue) {
-        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, defaultValue);
+    private TextView makeTitle(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(28);
+        t.setPadding(dp(2), 0, dp(2), dp(10));
+        return t;
     }
 
-    private void setBoolSetting(String key, boolean value) {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply();
+    private TextView makeCardHeader(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.WHITE);
+        t.setTextSize(20);
+        t.setPadding(dp(2), 0, dp(2), dp(10));
+        return t;
+    }
+
+    private TextView makeLabel(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.rgb(226, 232, 240));
+        t.setTextSize(17);
+        t.setPadding(dp(2), dp(6), dp(2), dp(6));
+        return t;
+    }
+
+    private TextView makeMuted(String text) {
+        TextView t = new TextView(this);
+        t.setText(text);
+        t.setTextColor(Color.rgb(148, 163, 184));
+        t.setTextSize(14);
+        t.setPadding(dp(2), 0, dp(2), dp(10));
+        return t;
+    }
+
+    private Button makePrimaryButton(String text) {
+        Button b = makeBaseButton(text);
+        b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(14)));
+        return b;
+    }
+
+    private Button makeSecondaryButton(String text) {
+        Button b = makeBaseButton(text);
+        b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(14)));
+        return b;
+    }
+
+    private Button makeToolbarButton(String text) {
+        Button b = makeBaseButton(text);
+        b.setTextSize(13);
+        b.setBackground(buttonBackground(Color.rgb(30, 41, 59), dp(16)));
+        return b;
+    }
+
+    private Button makeBaseButton(String text) {
+        Button b = new Button(this);
+        b.setText(text);
+        b.setAllCaps(false);
+        b.setSingleLine(false);
+        b.setTextColor(Color.WHITE);
+        b.setTextSize(15);
+        b.setIncludeFontPadding(false);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(6), 0, dp(6), 0);
+        return b;
+    }
+
+    private GradientDrawable buttonBackground(int color, int radius) {
+        GradientDrawable d = new GradientDrawable();
+        d.setColor(color);
+        d.setCornerRadius(radius);
+        return d;
     }
 
     private void setBusy(boolean busy, String message) {
         progressBar.setVisibility(busy ? View.VISIBLE : View.GONE);
-        testButton.setEnabled(!busy);
-        openButton.setEnabled(!busy);
-        reloadButton.setEnabled(!busy);
         statusText.setText(message);
     }
 
-    private void injectMobileLayer() {
-        String script = "(function(){var head=document.head||document.documentElement;var meta=document.querySelector('meta[name=viewport]');if(!meta){meta=document.createElement('meta');meta.name='viewport';head.appendChild(meta);}meta.content='width=device-width,initial-scale=1,minimum-scale=0.35,maximum-scale=3,user-scalable=yes,viewport-fit=cover';document.documentElement.classList.add('comfy-android-remote');if(document.body){document.body.classList.add('comfy-android-remote');}if(!document.getElementById('comfy-android-remote-style')){var style=document.createElement('style');style.id='comfy-android-remote-style';style.textContent='html.comfy-android-remote,html.comfy-android-remote body{overscroll-behavior:none!important;touch-action:manipulation!important;-webkit-tap-highlight-color:transparent!important;}html.comfy-android-remote button,html.comfy-android-remote input,html.comfy-android-remote select,html.comfy-android-remote textarea,html.comfy-android-remote [role=button]{min-height:40px!important;font-size:15px!important;}html.comfy-android-remote textarea,html.comfy-android-remote input{line-height:1.35!important;}html.comfy-android-remote .litecontextmenu,html.comfy-android-remote .p-menu,html.comfy-android-remote .p-dialog{font-size:15px!important;}@media(max-width:820px){html.comfy-android-remote button{padding-left:10px!important;padding-right:10px!important;}html.comfy-android-remote canvas{touch-action:none!important;}}';head.appendChild(style);}window.ComfyAndroidRemote={clickByText:function(words){var nodes=[].slice.call(document.querySelectorAll('button,[role=button],.p-button'));for(var i=0;i<nodes.length;i++){var n=nodes[i];var t=((n.innerText||n.textContent||'')+' '+(n.title||'')+' '+(n.getAttribute('aria-label')||'')).toLowerCase();for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0){n.click();return true;}}}return false;},run:function(){return this.clickByText(['run','queue','generate']);},fit:function(){var ok=this.clickByText(['fit','zoom to fit','reset view']);try{window.dispatchEvent(new KeyboardEvent('keydown',{key:'f',code:'KeyF',bubbles:true}));}catch(e){}return ok;}};})();";
-        webView.evaluateJavascript(script, null);
+    private void toast(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
-    private void runComfyQueue() {
-        if (getBoolSetting(KEY_CONFIRM_RUN, true)) {
-            new AlertDialog.Builder(this)
-                    .setTitle("Run workflow?")
-                    .setMessage("Start ComfyUI generation with the current workflow values.")
-                    .setPositiveButton("Run", (dialog, which) -> runComfyQueueNow())
-                    .setNegativeButton("Cancel", null)
-                    .show();
-            return;
-        }
-        runComfyQueueNow();
-    }
-
-    private void runComfyQueueNow() {
-        injectMobileLayer();
-        webView.evaluateJavascript("(function(){return window.ComfyAndroidRemote&&window.ComfyAndroidRemote.run?window.ComfyAndroidRemote.run():false;})();", value -> {
-            if (!"true".equals(value)) Toast.makeText(this, "Run button not found in ComfyUI", Toast.LENGTH_SHORT).show();
-        });
-        enterImmersiveMode();
-    }
-
-    private void fitComfyCanvas() {
-        injectMobileLayer();
-        webView.evaluateJavascript("(function(){return window.ComfyAndroidRemote&&window.ComfyAndroidRemote.fit?window.ComfyAndroidRemote.fit():false;})();", null);
-        enterImmersiveMode();
+    private void injectGraphTouchTweaks() {
+        String script = "(function(){var head=document.head||document.documentElement;var meta=document.querySelector('meta[name=viewport]');if(!meta){meta=document.createElement('meta');meta.name='viewport';head.appendChild(meta);}meta.content='width=device-width,initial-scale=1,minimum-scale=0.35,maximum-scale=3,user-scalable=yes,viewport-fit=cover';if(!document.getElementById('comfy-android-remote-style')){var style=document.createElement('style');style.id='comfy-android-remote-style';style.textContent='button,input,select,textarea,[role=button]{min-height:40px!important;font-size:15px!important;}canvas{touch-action:none!important;}';head.appendChild(style);}})();";
+        graphWebView.evaluateJavascript(script, null);
     }
 
     private void enterImmersiveMode() {
@@ -1319,16 +1168,32 @@ public class MainActivity extends Activity {
             enterImmersiveMode();
             return;
         }
+        if (requestCode == WORKFLOW_PICKER_REQUEST) {
+            if (resultCode == RESULT_OK && data != null) {
+                try {
+                    workflowJsonEditor.setText(readUriText(data.getData()));
+                    applyWorkflowJsonFromEditor();
+                } catch (Exception e) {
+                    toast("Could not read workflow file");
+                }
+            }
+            enterImmersiveMode();
+            return;
+        }
         super.onActivityResult(requestCode, resultCode, data);
     }
 
     @Override
     public void onBackPressed() {
-        if (menuDrawer != null && menuDrawer.getVisibility() == View.VISIBLE) hideMenuDrawer();
-        else if (nodeDrawer != null && nodeDrawer.getVisibility() == View.VISIBLE) hideNodeDrawer();
-        else if (topBar.getVisibility() != View.VISIBLE && webView != null && !webView.canGoBack()) toggleConnectionPanel();
-        else if (webView != null && webView.canGoBack()) webView.goBack();
-        else super.onBackPressed();
+        if (graphWebView.getVisibility() == View.VISIBLE) {
+            if (graphWebView.canGoBack()) {
+                graphWebView.goBack();
+            } else {
+                showNativeMode();
+            }
+            return;
+        }
+        super.onBackPressed();
     }
 
     private int dp(int value) {
