@@ -6,12 +6,14 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.OpenableColumns;
 import android.text.InputType;
 import android.view.Gravity;
 import android.view.View;
@@ -35,9 +37,14 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 
 public class MainActivity extends Activity {
@@ -50,11 +57,11 @@ public class MainActivity extends Activity {
     private static final String KEY_CONFIRM_RUN = "confirm_before_run";
     private static final String KEY_AUTO_REFRESH_AFTER_APPLY = "auto_refresh_after_apply";
     private static final String KEY_AGGRESSIVE_GRAPH_RETURN = "aggressive_graph_return";
-    private static final String KEY_LARGE_UI = "large_ui";
     private static final String KEY_HUMAN_LABELS = "human_readable_labels";
     private static final String KEY_ONE_APPLY_PER_CARD = "one_apply_per_card";
     private static final String KEY_FULL_SCREEN_PARAMS = "full_screen_params";
     private static final int FILE_CHOOSER_REQUEST = 42;
+    private static final int IMAGE_PICKER_REQUEST = 43;
 
     private WebView webView;
     private EditText urlInput;
@@ -70,6 +77,8 @@ public class MainActivity extends Activity {
     private Button openButton;
     private Button reloadButton;
     private ValueCallback<Uri[]> filePathCallback;
+    private int pendingImageNodeId = -1;
+    private int pendingImageWidgetIndex = -1;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private static class WidgetField {
@@ -78,6 +87,17 @@ public class MainActivity extends Activity {
         WidgetField(int widgetIndex, EditText input) {
             this.widgetIndex = widgetIndex;
             this.input = input;
+        }
+    }
+
+    private static class OutputFile {
+        final String filename;
+        final String subfolder;
+        final String type;
+        OutputFile(String filename, String subfolder, String type) {
+            this.filename = filename;
+            this.subfolder = subfolder;
+            this.type = type;
         }
     }
 
@@ -119,9 +139,7 @@ public class MainActivity extends Activity {
 
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER);
         topBar.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
         testButton = makeButton("Test");
         openButton = makeButton("Open");
         reloadButton = makeButton("Reload");
@@ -201,8 +219,8 @@ public class MainActivity extends Activity {
         nodeList.setOrientation(LinearLayout.VERTICAL);
         scroll.addView(nodeList, new ScrollView.LayoutParams(-1, -2));
         nodeDrawer.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
         root.addView(nodeDrawer, new FrameLayout.LayoutParams(-1, -1, Gravity.LEFT));
+
         refresh.setOnClickListener(v -> refreshNodeDrawer());
         close.setOnClickListener(v -> hideNodeDrawer());
     }
@@ -255,7 +273,6 @@ public class MainActivity extends Activity {
         content.addView(makeMenuAction("Fit canvas", () -> fitComfyCanvas()));
 
         content.addView(makeSectionTitle("Settings"));
-        content.addView(makeSettingCheckBox(KEY_LARGE_UI, "Large UI for Pixel 8a", true));
         content.addView(makeSettingCheckBox(KEY_HUMAN_LABELS, "Human-readable labels", true));
         content.addView(makeSettingCheckBox(KEY_ONE_APPLY_PER_CARD, "One Apply button per card", true));
         content.addView(makeSettingCheckBox(KEY_FULL_SCREEN_PARAMS, "Full-screen Params", true));
@@ -273,7 +290,6 @@ public class MainActivity extends Activity {
             webView.clearHistory();
             Toast.makeText(this, "WebView cache cleared", Toast.LENGTH_SHORT).show();
         }));
-
         root.addView(menuDrawer, new FrameLayout.LayoutParams(-1, -1, Gravity.RIGHT));
     }
 
@@ -330,7 +346,10 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
         p.setMargins(0, 0, 0, dp(10));
         b.setLayoutParams(p);
-        b.setOnClickListener(v -> { action.run(); enterImmersiveMode(); });
+        b.setOnClickListener(v -> {
+            action.run();
+            enterImmersiveMode();
+        });
         return b;
     }
 
@@ -435,7 +454,7 @@ public class MainActivity extends Activity {
     private GradientDrawable drawerBackground() {
         GradientDrawable d = new GradientDrawable();
         d.setColor(Color.argb(252, 15, 23, 42));
-        d.setStroke(dp(1), Color.argb(220, 71, 105));
+        d.setStroke(dp(1), Color.argb(220, 71, 85, 105));
         return d;
     }
 
@@ -463,8 +482,9 @@ public class MainActivity extends Activity {
                 if (filePathCallback != null) filePathCallback.onReceiveValue(null);
                 filePathCallback = callback;
                 Intent intent;
-                try { intent = params.createIntent(); }
-                catch (Exception e) {
+                try {
+                    intent = params.createIntent();
+                } catch (Exception e) {
                     intent = new Intent(Intent.ACTION_GET_CONTENT);
                     intent.addCategory(Intent.CATEGORY_OPENABLE);
                     intent.setType("*/*");
@@ -486,6 +506,7 @@ public class MainActivity extends Activity {
                 progressBar.setVisibility(View.VISIBLE);
                 statusText.setText("Loading: " + url);
             }
+
             @Override
             public void onPageFinished(WebView view, String url) {
                 progressBar.setVisibility(View.GONE);
@@ -503,7 +524,10 @@ public class MainActivity extends Activity {
 
     private void testConnection() {
         String base = getNormalizedUrl();
-        if (base.isEmpty()) { Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show(); return; }
+        if (base.isEmpty()) {
+            Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
+            return;
+        }
         saveUrl(base);
         setBusy(true, "Testing /system_stats ...");
         new Thread(() -> {
@@ -524,12 +548,17 @@ public class MainActivity extends Activity {
             return "HTTP " + code + ". Check URL, port, or tunnel.";
         } catch (Exception e) {
             return "Connection failed: " + e.getClass().getSimpleName() + ". Check ComfyUI and URL.";
-        } finally { if (c != null) c.disconnect(); }
+        } finally {
+            if (c != null) c.disconnect();
+        }
     }
 
     private void openCurrentUrl() {
         String url = getNormalizedUrl();
-        if (url.isEmpty()) { Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show(); return; }
+        if (url.isEmpty()) {
+            Toast.makeText(this, "Enter ComfyUI URL", Toast.LENGTH_SHORT).show();
+            return;
+        }
         saveUrl(url);
         showWorkspaceMode();
         webView.loadUrl(url);
@@ -580,8 +609,9 @@ public class MainActivity extends Activity {
     }
 
     private void toggleMenuDrawer() {
-        if (menuDrawer.getVisibility() == View.VISIBLE) hideMenuDrawer();
-        else {
+        if (menuDrawer.getVisibility() == View.VISIBLE) {
+            hideMenuDrawer();
+        } else {
             hideNodeDrawerIfOpen();
             updateDrawerWidth(menuDrawer);
             menuDrawer.setVisibility(View.VISIBLE);
@@ -622,7 +652,10 @@ public class MainActivity extends Activity {
     private void renderNodeDrawer(String value) {
         nodeList.removeAllViews();
         try {
-            if (value == null || "null".equals(value)) { addDrawerMessage("Could not read workflow. Open a workflow first.", true); return; }
+            if (value == null || "null".equals(value)) {
+                addDrawerMessage("Could not read workflow. Open a workflow first.", true);
+                return;
+            }
             JSONArray nodes = new JSONArray(value);
             int shown = 0;
             for (int i = 0; i < nodes.length(); i++) {
@@ -634,8 +667,11 @@ public class MainActivity extends Activity {
                 shown++;
             }
             if (shown == 0) addDrawerMessage("No editable parameters found. Disable 'Show only editable nodes' in Menu → Settings to inspect all nodes.", true);
-        } catch (JSONException e) { addDrawerMessage("Could not parse ComfyUI node list.", true); }
-        finally { enterImmersiveMode(); }
+        } catch (JSONException e) {
+            addDrawerMessage("Could not parse ComfyUI node list.", true);
+        } finally {
+            enterImmersiveMode();
+        }
     }
 
     private void addNodeCard(JSONObject node, int index) throws JSONException {
@@ -660,7 +696,9 @@ public class MainActivity extends Activity {
 
         Button header = makeNodeHeaderButton(index + ". " + title);
         card.addView(header, new LinearLayout.LayoutParams(-1, compact ? dp(52) : dp(60)));
-        if (!hideTechnical) card.addView(makeDrawerText("#" + id + (type.isEmpty() ? "" : " · type: " + type), 14, Color.rgb(148, 163, 184)));
+        if (!hideTechnical) {
+            card.addView(makeDrawerText("#" + id + (type.isEmpty() ? "" : " · type: " + type), 14, Color.rgb(148, 163, 184)));
+        }
 
         LinearLayout details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
@@ -688,7 +726,9 @@ public class MainActivity extends Activity {
                 details.addView(applyCard, p);
                 applyCard.setOnClickListener(v -> applyWidgetValues(id, fields));
             }
-        } else details.addView(makeDrawerText("No editable widgets", 15, Color.rgb(148, 163, 184)));
+        } else {
+            details.addView(makeDrawerText("No editable widgets", 15, Color.rgb(148, 163, 184)));
+        }
 
         if (!hideTechnical) {
             if (inputs != null && inputs.length() > 0) {
@@ -706,7 +746,11 @@ public class MainActivity extends Activity {
                 }
             }
         }
-        header.setOnClickListener(v -> { details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); enterImmersiveMode(); });
+
+        header.setOnClickListener(v -> {
+            details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+            enterImmersiveMode();
+        });
     }
 
     private void addLoadImageActions(LinearLayout details, int nodeId, JSONArray widgets) {
@@ -715,17 +759,19 @@ public class MainActivity extends Activity {
         TextView title = makeDrawerText("Image input", 16, Color.WHITE);
         title.setPadding(dp(4), dp(8), dp(4), dp(4));
         details.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
         Button choose = makeTinyActionButton("Choose image from phone");
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
         p.setMargins(0, 0, 0, dp(10));
         details.addView(choose, p);
-        choose.setOnClickListener(v -> triggerLoadImagePicker(nodeId, imageWidgetIndex));
+        choose.setOnClickListener(v -> chooseImageForWidget(nodeId, imageWidgetIndex));
     }
 
     private void addOutputActions(LinearLayout details) {
         TextView title = makeDrawerText("Output", 16, Color.WHITE);
         title.setPadding(dp(4), dp(8), dp(4), dp(4));
         details.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
         Button preview = makeSecondaryActionButton("Preview latest output");
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
         p.setMargins(0, 0, 0, dp(10));
@@ -764,13 +810,16 @@ public class MainActivity extends Activity {
         TextView label = makeDrawerText("• " + name, 16, Color.rgb(226, 232, 240));
         label.setPadding(dp(4), compact ? dp(8) : dp(12), dp(4), dp(4));
         details.addView(label, new LinearLayout.LayoutParams(-1, -2));
+
         if (!getBoolSetting(KEY_HIDE_TECHNICAL, true) && !name.equals(rawName)) {
             details.addView(makeDrawerText("raw: " + rawName + (type.isEmpty() ? "" : " [" + type + "]"), 12, Color.rgb(148, 163, 184)));
         }
+
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
         details.addView(row, new LinearLayout.LayoutParams(-1, -2));
+
         EditText valueInput = new EditText(this);
         valueInput.setText(value);
         valueInput.setTextSize(17);
@@ -785,9 +834,14 @@ public class MainActivity extends Activity {
             valueInput.setMinLines(3);
             valueInput.setMaxLines(8);
         }
-        valueInput.setInputType(isNumericField(name, type, value) ? InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED : (valueInput.isSingleLine() ? InputType.TYPE_CLASS_TEXT : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE));
+        if (isNumericField(name, type, value)) {
+            valueInput.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL | InputType.TYPE_NUMBER_FLAG_SIGNED);
+        } else {
+            valueInput.setInputType(valueInput.isSingleLine() ? InputType.TYPE_CLASS_TEXT : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE);
+        }
         valueInput.setBackground(buttonBackground(Color.rgb(15, 23, 42), dp(14)));
         row.addView(valueInput, new LinearLayout.LayoutParams(0, -2, 1));
+
         if (inlineApply) {
             Button apply = makeTinyActionButton("Apply");
             LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(dp(92), compact ? dp(52) : dp(58));
@@ -854,7 +908,12 @@ public class MainActivity extends Activity {
         String lower = ((name == null ? "" : name) + " " + (type == null ? "" : type)).toLowerCase();
         if (lower.contains("width") || lower.contains("height") || lower.contains("step") || lower.contains("seed") || lower.contains("cfg") || lower.contains("duration") || lower.contains("batch") || lower.contains("fps") || lower.contains("frame")) return true;
         if (value == null || value.isEmpty()) return false;
-        try { Double.parseDouble(value); return true; } catch (Exception ignored) { return false; }
+        try {
+            Double.parseDouble(value);
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 
     private Button makeNodeHeaderButton(String text) {
@@ -907,14 +966,24 @@ public class MainActivity extends Activity {
 
     private void applyWidgetValue(int nodeId, int widgetIndex, String rawValue) {
         JSONArray arr = new JSONArray();
-        try { JSONObject item = new JSONObject(); item.put("index", widgetIndex); item.put("value", rawValue); arr.put(item); } catch (JSONException ignored) {}
+        try {
+            JSONObject item = new JSONObject();
+            item.put("index", widgetIndex);
+            item.put("value", rawValue);
+            arr.put(item);
+        } catch (JSONException ignored) {}
         applyWidgetValuesJson(nodeId, arr);
     }
 
     private void applyWidgetValues(int nodeId, List<WidgetField> fields) {
         JSONArray arr = new JSONArray();
         for (WidgetField field : fields) {
-            try { JSONObject item = new JSONObject(); item.put("index", field.widgetIndex); item.put("value", field.input.getText().toString()); arr.put(item); } catch (JSONException ignored) {}
+            try {
+                JSONObject item = new JSONObject();
+                item.put("index", field.widgetIndex);
+                item.put("value", field.input.getText().toString());
+                arr.put(item);
+            } catch (JSONException ignored) {}
         }
         applyWidgetValuesJson(nodeId, arr);
     }
@@ -934,43 +1003,217 @@ public class MainActivity extends Activity {
             if ("true".equals(value)) {
                 Toast.makeText(this, "Applied", Toast.LENGTH_SHORT).show();
                 if (getBoolSetting(KEY_AUTO_REFRESH_AFTER_APPLY, true)) refreshNodeDrawer();
-            } else Toast.makeText(this, "Could not apply widget value", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Could not apply widget value", Toast.LENGTH_SHORT).show();
+            }
         });
         enterImmersiveMode();
     }
 
-    private void triggerLoadImagePicker(int nodeId, int imageWidgetIndex) {
-        injectMobileLayer();
-        Toast.makeText(this, "Opening image picker...", Toast.LENGTH_SHORT).show();
-        String script = "(function(){try{"
-                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
-                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
-                + "if(!graph)return false;"
-                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
-                + "if(!n||!n.widgets||!n.widgets[" + imageWidgetIndex + "])return false;"
-                + "var old=document.getElementById('comfy-android-remote-file-input');if(old)old.remove();"
-                + "var input=document.createElement('input');input.id='comfy-android-remote-file-input';input.type='file';input.accept='image/*';input.style.position='fixed';input.style.left='-10000px';input.style.top='-10000px';"
-                + "input.onchange=async function(){var file=input.files&&input.files[0];if(!file)return;try{var fd=new FormData();fd.append('image',file,file.name);fd.append('type','input');fd.append('overwrite','true');var r=await fetch('/upload/image',{method:'POST',body:fd});var j=await r.json();var name=j.name||file.name;var w=n.widgets[" + imageWidgetIndex + "];w.value=name;try{if(w.callback)w.callback.call(w,name,canvas,n,n.pos||[0,0],null);}catch(e){}try{if(n.onWidgetChanged)n.onWidgetChanged(w.name,name,w);}catch(e){}try{if(canvas&&canvas.setDirty)canvas.setDirty(true,true);}catch(e){}try{if(graph.setDirtyCanvas)graph.setDirtyCanvas(true,true);}catch(e){}alert('Image selected: '+name);}catch(e){alert('Image upload failed: '+e.message);}};"
-                + "document.body.appendChild(input);input.click();return true;"
-                + "}catch(e){return false;}})();";
-        webView.evaluateJavascript(script, value -> {
-            if (!"true".equals(value)) Toast.makeText(this, "Could not open image picker", Toast.LENGTH_SHORT).show();
-        });
+    private void chooseImageForWidget(int nodeId, int imageWidgetIndex) {
+        pendingImageNodeId = nodeId;
+        pendingImageWidgetIndex = imageWidgetIndex;
+        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        try {
+            startActivityForResult(Intent.createChooser(intent, "Choose image"), IMAGE_PICKER_REQUEST);
+        } catch (Exception e) {
+            Toast.makeText(this, "No image picker available", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void uploadPickedImage(Uri uri) {
+        if (uri == null || pendingImageNodeId < 0 || pendingImageWidgetIndex < 0) return;
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            Toast.makeText(this, "Enter ComfyUI URL first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "Uploading image...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            try {
+                String name = getDisplayName(uri);
+                String mime = getContentResolver().getType(uri);
+                byte[] bytes = readBytes(uri);
+                String uploadedName = uploadImageMultipart(base, bytes, name, mime);
+                int nodeId = pendingImageNodeId;
+                int widgetIndex = pendingImageWidgetIndex;
+                mainHandler.post(() -> {
+                    Toast.makeText(this, "Uploaded: " + uploadedName, Toast.LENGTH_SHORT).show();
+                    applyWidgetValue(nodeId, widgetIndex, uploadedName);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> Toast.makeText(this, "Image upload failed: " + e.getClass().getSimpleName(), Toast.LENGTH_LONG).show());
+            }
+        }).start();
+    }
+
+    private byte[] readBytes(Uri uri) throws Exception {
+        InputStream in = getContentResolver().openInputStream(uri);
+        if (in == null) throw new IllegalStateException("No input stream");
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            return out.toByteArray();
+        } finally {
+            in.close();
+        }
+    }
+
+    private String getDisplayName(Uri uri) {
+        String result = null;
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, null, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) result = cursor.getString(idx);
+            }
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) cursor.close();
+        }
+        if (result == null || result.trim().isEmpty()) result = "comfy_remote_image.png";
+        return result.replaceAll("[^A-Za-z0-9._-]", "_");
+    }
+
+    private String uploadImageMultipart(String base, byte[] bytes, String filename, String mime) throws Exception {
+        String boundary = "----ComfyRemote" + System.currentTimeMillis();
+        HttpURLConnection c = null;
+        try {
+            URL url = new URL(base + "/upload/image");
+            c = (HttpURLConnection) url.openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(30000);
+            c.setDoOutput(true);
+            c.setRequestMethod("POST");
+            c.setRequestProperty("Content-Type", "multipart/form-data; boundary=" + boundary);
+            OutputStream out = c.getOutputStream();
+            writePart(out, boundary, "type", "input");
+            writePart(out, boundary, "overwrite", "true");
+            writeFilePart(out, boundary, "image", filename, mime == null ? "application/octet-stream" : mime, bytes);
+            out.write(("--" + boundary + "--\r\n").getBytes("UTF-8"));
+            out.flush();
+            out.close();
+            int code = c.getResponseCode();
+            InputStream response = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+            String body = readStream(response);
+            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + body);
+            JSONObject json = new JSONObject(body);
+            return json.optString("name", filename);
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    private void writePart(OutputStream out, String boundary, String name, String value) throws Exception {
+        out.write(("--" + boundary + "\r\n").getBytes("UTF-8"));
+        out.write(("Content-Disposition: form-data; name=\"" + name + "\"\r\n\r\n").getBytes("UTF-8"));
+        out.write((value + "\r\n").getBytes("UTF-8"));
+    }
+
+    private void writeFilePart(OutputStream out, String boundary, String name, String filename, String mime, byte[] bytes) throws Exception {
+        out.write(("--" + boundary + "\r\n").getBytes("UTF-8"));
+        out.write(("Content-Disposition: form-data; name=\"" + name + "\"; filename=\"" + filename + "\"\r\n").getBytes("UTF-8"));
+        out.write(("Content-Type: " + mime + "\r\n\r\n").getBytes("UTF-8"));
+        out.write(bytes);
+        out.write("\r\n".getBytes("UTF-8"));
+    }
+
+    private String readStream(InputStream in) throws Exception {
+        if (in == null) return "";
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int n;
+            while ((n = in.read(buffer)) > 0) out.write(buffer, 0, n);
+            return out.toString("UTF-8");
+        } finally {
+            in.close();
+        }
     }
 
     private void openLatestOutput() {
-        Toast.makeText(this, "Trying latest output...", Toast.LENGTH_SHORT).show();
-        injectMobileLayer();
-        String script = "(async function(){function enc(v){return encodeURIComponent(v||'');}function first(arr){return arr&&arr.length?arr[0]:null;}try{var h=await fetch('/history').then(function(r){return r.json();});var found=null;Object.keys(h).forEach(function(pid){var outs=(h[pid]&&h[pid].outputs)||{};Object.keys(outs).forEach(function(nid){var o=outs[nid]||{};found=first(o.videos)||first(o.gifs)||first(o.images)||found;});});if(!found||!found.filename)return false;location.href='/view?filename='+enc(found.filename)+'&type='+enc(found.type||'output')+'&subfolder='+enc(found.subfolder||'');return true;}catch(e){return false;}})();";
-        webView.evaluateJavascript(script, value -> { if ("false".equals(value)) Toast.makeText(this, "No output found yet", Toast.LENGTH_SHORT).show(); });
+        String base = getNormalizedUrl();
+        if (base.isEmpty()) {
+            Toast.makeText(this, "Enter ComfyUI URL first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "Opening latest output...", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            HttpURLConnection c = null;
+            try {
+                URL url = new URL(base + "/history");
+                c = (HttpURLConnection) url.openConnection();
+                c.setConnectTimeout(8000);
+                c.setReadTimeout(15000);
+                String body = readStream(c.getInputStream());
+                OutputFile file = findLatestOutputFile(new JSONObject(body));
+                if (file == null) throw new IllegalStateException("No output files");
+                String viewUrl = base + "/view?filename=" + enc(file.filename) + "&type=" + enc(file.type) + "&subfolder=" + enc(file.subfolder);
+                mainHandler.post(() -> {
+                    hideNodeDrawerIfOpen();
+                    hideMenuDrawerIfOpen();
+                    webView.loadUrl(viewUrl);
+                    Toast.makeText(this, "Latest output", Toast.LENGTH_SHORT).show();
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> Toast.makeText(this, "No output found yet", Toast.LENGTH_LONG).show());
+            } finally {
+                if (c != null) c.disconnect();
+            }
+        }).start();
+    }
+
+    private OutputFile findLatestOutputFile(JSONObject history) throws JSONException {
+        OutputFile found = null;
+        Iterator<String> promptIds = history.keys();
+        while (promptIds.hasNext()) {
+            JSONObject item = history.optJSONObject(promptIds.next());
+            if (item == null) continue;
+            JSONObject outputs = item.optJSONObject("outputs");
+            if (outputs == null) continue;
+            Iterator<String> nodeIds = outputs.keys();
+            while (nodeIds.hasNext()) {
+                JSONObject nodeOut = outputs.optJSONObject(nodeIds.next());
+                if (nodeOut == null) continue;
+                OutputFile f = firstFileInArray(nodeOut.optJSONArray("videos"));
+                if (f != null) found = f;
+                f = firstFileInArray(nodeOut.optJSONArray("gifs"));
+                if (f != null) found = f;
+                f = firstFileInArray(nodeOut.optJSONArray("images"));
+                if (f != null) found = f;
+            }
+        }
+        return found;
+    }
+
+    private OutputFile firstFileInArray(JSONArray arr) {
+        if (arr == null || arr.length() == 0) return null;
+        JSONObject f = arr.optJSONObject(0);
+        if (f == null) return null;
+        String filename = f.optString("filename", "");
+        if (filename.isEmpty()) return null;
+        return new OutputFile(filename, f.optString("subfolder", ""), f.optString("type", "output"));
+    }
+
+    private String enc(String s) throws Exception {
+        return URLEncoder.encode(s == null ? "" : s, "UTF-8");
     }
 
     private void returnToGraph() {
-        hideNodeDrawerIfOpen(); hideMenuDrawerIfOpen(); injectMobileLayer();
+        hideNodeDrawerIfOpen();
+        hideMenuDrawerIfOpen();
+        injectMobileLayer();
         boolean aggressive = getBoolSetting(KEY_AGGRESSIVE_GRAPH_RETURN, true);
         String overlayPart = aggressive ? "try{[].slice.call(document.querySelectorAll('.p-dialog-mask,.p-component-overlay,.p-dialog,.p-sidebar,.p-drawer,.p-overlaypanel')).forEach(function(el){el.style.display='none';});}catch(e){}" : "";
         String script = "(function(){function esc(){try{document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',code:'Escape',bubbles:true,cancelable:true}));}catch(e){}}esc();esc();function info(el){return ((el.innerText||el.textContent||'')+' '+(el.title||'')+' '+(el.getAttribute('aria-label')||'')).toLowerCase();}function clickByWords(words){var els=[].slice.call(document.querySelectorAll('button,[role=button],a,.p-tab,.p-button'));for(var i=0;i<els.length;i++){var t=info(els[i]);for(var j=0;j<words.length;j++){if(t.indexOf(words[j])>=0){els[i].click();return true;}}}return false;}var closed=0;[].slice.call(document.querySelectorAll('button,[role=button]')).forEach(function(el){var t=info(el);if(t==='×'||t.indexOf('close')>=0||t.indexOf('dismiss')>=0){try{el.click();closed++;}catch(e){}}});var clicked=clickByWords(['graph','workflow','editor']);" + overlayPart + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);try{if(canvas&&canvas.canvas){canvas.canvas.focus();canvas.setDirty&&canvas.setDirty(true,true);}}catch(e){}return clicked||closed>0||!!canvas;})();";
-        webView.evaluateJavascript(script, value -> { if (!"true".equals(value)) Toast.makeText(this, "Could not return to graph", Toast.LENGTH_SHORT).show(); });
+        webView.evaluateJavascript(script, value -> {
+            if (!"true".equals(value)) Toast.makeText(this, "Could not return to graph", Toast.LENGTH_SHORT).show();
+        });
         enterImmersiveMode();
     }
 
@@ -982,7 +1225,9 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void saveUrl(String url) { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).apply(); }
+    private void saveUrl(String url) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, url).apply();
+    }
 
     private String getNormalizedUrl() {
         String raw = urlInput.getText().toString().trim();
@@ -992,12 +1237,20 @@ public class MainActivity extends Activity {
         return raw;
     }
 
-    private boolean getBoolSetting(String key, boolean defaultValue) { return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, defaultValue); }
-    private void setBoolSetting(String key, boolean value) { getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply(); }
+    private boolean getBoolSetting(String key, boolean defaultValue) {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).getBoolean(key, defaultValue);
+    }
+
+    private void setBoolSetting(String key, boolean value) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putBoolean(key, value).apply();
+    }
 
     private void setBusy(boolean busy, String message) {
         progressBar.setVisibility(busy ? View.VISIBLE : View.GONE);
-        testButton.setEnabled(!busy); openButton.setEnabled(!busy); reloadButton.setEnabled(!busy); statusText.setText(message);
+        testButton.setEnabled(!busy);
+        openButton.setEnabled(!busy);
+        reloadButton.setEnabled(!busy);
+        statusText.setText(message);
     }
 
     private void injectMobileLayer() {
@@ -1007,7 +1260,12 @@ public class MainActivity extends Activity {
 
     private void runComfyQueue() {
         if (getBoolSetting(KEY_CONFIRM_RUN, true)) {
-            new AlertDialog.Builder(this).setTitle("Run workflow?").setMessage("Start ComfyUI generation with the current workflow values.").setPositiveButton("Run", (dialog, which) -> runComfyQueueNow()).setNegativeButton("Cancel", null).show();
+            new AlertDialog.Builder(this)
+                    .setTitle("Run workflow?")
+                    .setMessage("Start ComfyUI generation with the current workflow values.")
+                    .setPositiveButton("Run", (dialog, which) -> runComfyQueueNow())
+                    .setNegativeButton("Cancel", null)
+                    .show();
             return;
         }
         runComfyQueueNow();
@@ -1015,7 +1273,9 @@ public class MainActivity extends Activity {
 
     private void runComfyQueueNow() {
         injectMobileLayer();
-        webView.evaluateJavascript("(function(){return window.ComfyAndroidRemote&&window.ComfyAndroidRemote.run?window.ComfyAndroidRemote.run():false;})();", value -> { if (!"true".equals(value)) Toast.makeText(this, "Run button not found in ComfyUI", Toast.LENGTH_SHORT).show(); });
+        webView.evaluateJavascript("(function(){return window.ComfyAndroidRemote&&window.ComfyAndroidRemote.run?window.ComfyAndroidRemote.run():false;})();", value -> {
+            if (!"true".equals(value)) Toast.makeText(this, "Run button not found in ComfyUI", Toast.LENGTH_SHORT).show();
+        });
         enterImmersiveMode();
     }
 
@@ -1028,10 +1288,21 @@ public class MainActivity extends Activity {
     private void enterImmersiveMode() {
         Window window = getWindow();
         View decor = window.getDecorView();
-        decor.setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
+        decor.setSystemUiVisibility(
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                        | View.SYSTEM_UI_FLAG_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                        | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                        | View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        );
     }
 
-    @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) enterImmersiveMode(); }
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) enterImmersiveMode();
+    }
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -1040,6 +1311,11 @@ public class MainActivity extends Activity {
             Uri[] result = WebChromeClient.FileChooserParams.parseResult(resultCode, data);
             filePathCallback.onReceiveValue(result);
             filePathCallback = null;
+            enterImmersiveMode();
+            return;
+        }
+        if (requestCode == IMAGE_PICKER_REQUEST) {
+            if (resultCode == RESULT_OK && data != null) uploadPickedImage(data.getData());
             enterImmersiveMode();
             return;
         }
@@ -1055,5 +1331,7 @@ public class MainActivity extends Activity {
         else super.onBackPressed();
     }
 
-    private int dp(int value) { return Math.round(value * getResources().getDisplayMetrics().density); }
+    private int dp(int value) {
+        return Math.round(value * getResources().getDisplayMetrics().density);
+    }
 }
