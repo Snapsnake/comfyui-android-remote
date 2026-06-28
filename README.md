@@ -12,15 +12,18 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - Enables JavaScript, DOM storage, zoom, mixed content, cleartext HTTP, and Android file upload from WebView.
 - Adds a mobile workspace layer after opening ComfyUI:
   - fullscreen immersive mode;
-  - compact bottom toolbar with `Params`, `Graph`, `Run`, `Fit`, and `Menu`;
+  - compact bottom toolbar with `Params`, `Graph`, `Run`, `Output`, and `Menu`;
   - small floating toolbar toggle instead of a large `Hide` button;
   - `Graph` action for trying to close overlays such as Job Queue and return to the workflow canvas;
+  - `Output` action for opening the latest generated image/video from ComfyUI history;
   - full-screen native `Params` drawer that reads the current ComfyUI graph and lists editable workflow parameters;
   - larger Pixel-8a-friendly controls, labels, input fields, and buttons;
   - human-readable labels for common widgets such as prompt, width, height, steps, seed, checkpoint, LoRA, and text encoder;
   - one `Apply card` button per parameter card by default;
+  - special `Choose image from phone` action for `Load Image` nodes;
+  - special `Preview latest output` action for output/save nodes;
   - editable widget fields in the `Params` drawer;
-  - `Menu` drawer with connection actions, settings, and debug actions;
+  - `Menu` drawer with connection actions, workflow actions, settings, and debug actions;
   - injected viewport/CSS tweaks for larger touch targets and reduced accidental overscroll.
 - Includes a GitHub Actions workflow to build a debug APK.
 
@@ -31,6 +34,8 @@ Android WebView remote client for opening a desktop ComfyUI interface from an An
 - It does not make public exposure of ComfyUI safe.
 - It does not make the ComfyUI node canvas fully mobile-native. The mobile toolbar and drawers are a usability layer over the existing desktop ComfyUI frontend.
 - It does not guarantee that every custom node widget can be edited safely. Some custom widgets may need node-specific handling.
+- `Choose image from phone` depends on the loaded ComfyUI `Load Image` node exposing its normal upload widget callback.
+- `Output` depends on ComfyUI `/history` containing a recent image/video output.
 
 ## Recommended connection mode
 
@@ -77,7 +82,7 @@ After pressing `Open`, the connection panel is hidden and the app shows a compac
 - `Params` opens a native drawer with the current editable workflow parameters.
 - `Graph` tries to close ComfyUI overlays/panels and return to the workflow canvas.
 - `Run` tries to press the visible ComfyUI run/queue/generate button.
-- `Fit` tries to trigger the ComfyUI fit/reset-view action.
+- `Output` tries to open the latest generated file from ComfyUI history.
 - `Menu` opens a native menu/settings drawer.
 - The small floating button hides or shows the bottom toolbar.
 
@@ -87,7 +92,9 @@ The `Params` drawer reads `window.app.graph` from the loaded ComfyUI frontend an
 - editable widgets and their current values;
 - large text inputs for prompts/text;
 - numeric keyboard for numeric fields where possible;
-- human-readable parameter names instead of raw `value_1`, `value_2`, etc. where possible.
+- human-readable parameter names instead of raw `value_1`, `value_2`, etc. where possible;
+- a `Choose image from phone` button for `Load Image` nodes;
+- a `Preview latest output` button for save/output nodes.
 
 Tap a parameter card to expand or collapse its details. Change multiple values inside a card and press `Apply card` to write them back into the loaded ComfyUI graph. Per-field `Apply` can be restored in settings.
 
@@ -96,6 +103,7 @@ Tap a parameter card to expand or collapse its details. Change multiple values i
 The `Menu` drawer contains:
 
 - Connection actions: test connection, reload ComfyUI, show URL panel.
+- Workflow actions: preview latest output, open full ComfyUI graph, fit canvas.
 - Settings:
   - large UI for Pixel 8a;
   - human-readable labels;
@@ -108,7 +116,7 @@ The `Menu` drawer contains:
   - confirm before Run;
   - auto refresh after Apply;
   - aggressive Graph return.
-- Debug actions: open full ComfyUI graph and clear WebView cache.
+- Debug actions: clear WebView cache.
 
 These controls are intentionally conservative. They do not depend on a private ComfyUI API; they search for common visible buttons and read/write the current in-browser graph from the loaded ComfyUI frontend.
 
