@@ -57,15 +57,12 @@ public class MainActivity extends Activity {
     private static final int IMAGE_PICKER_REQUEST = 43;
     private static final int WORKFLOW_PICKER_REQUEST = 44;
 
-    private LinearLayout topBar;
     private EditText urlInput;
     private TextView statusText;
     private ProgressBar progressBar;
-    private FrameLayout workspaceFrame;
     private ScrollView nativeScroll;
     private LinearLayout nativeContent;
     private WebView graphWebView;
-    private LinearLayout bottomToolbar;
     private EditText workflowJsonEditor;
 
     private ValueCallback<Uri[]> filePathCallback;
@@ -131,7 +128,7 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(2, 6, 23));
 
-        topBar = new LinearLayout(this);
+        LinearLayout topBar = new LinearLayout(this);
         topBar.setOrientation(LinearLayout.VERTICAL);
         topBar.setPadding(dp(12), dp(8), dp(12), dp(8));
         topBar.setBackgroundColor(Color.rgb(15, 23, 42));
@@ -182,7 +179,7 @@ public class MainActivity extends Activity {
         statusText.setBackgroundColor(Color.rgb(15, 23, 42));
         root.addView(statusText, new LinearLayout.LayoutParams(-1, -2));
 
-        workspaceFrame = new FrameLayout(this);
+        FrameLayout workspaceFrame = new FrameLayout(this);
         root.addView(workspaceFrame, new LinearLayout.LayoutParams(-1, 0, 1));
 
         nativeScroll = new ScrollView(this);
@@ -202,14 +199,8 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
-    private LinearLayout.LayoutParams weightButtonParams() {
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1);
-        p.setMargins(dp(3), 0, dp(3), 0);
-        return p;
-    }
-
     private void buildBottomToolbar(LinearLayout root) {
-        bottomToolbar = new LinearLayout(this);
+        LinearLayout bottomToolbar = new LinearLayout(this);
         bottomToolbar.setOrientation(LinearLayout.HORIZONTAL);
         bottomToolbar.setGravity(Gravity.CENTER);
         bottomToolbar.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -293,20 +284,13 @@ public class MainActivity extends Activity {
     private void renderNativeScreen() {
         apiFields.clear();
         nativeContent.removeAllViews();
-
-        TextView title = makeTitle("Native workflow");
-        nativeContent.addView(title);
-
-        TextView intro = makeMuted("This screen talks to ComfyUI API directly. WebView is only an advanced Graph mode now.");
-        nativeContent.addView(intro);
-
+        nativeContent.addView(makeTitle("Native workflow"));
+        nativeContent.addView(makeMuted("This screen talks to ComfyUI API directly. WebView is only an advanced Graph mode now."));
         addWorkflowJsonCard();
-
         if (workflowObject == null) {
             addEmptyWorkflowHelp();
             return;
         }
-
         addQuickActionsCard();
         addNodeCardsFromWorkflow();
     }
@@ -314,7 +298,6 @@ public class MainActivity extends Activity {
     private void addWorkflowJsonCard() {
         LinearLayout card = makeCard();
         nativeContent.addView(card, cardParams());
-
         card.addView(makeCardHeader("Workflow API JSON"));
         card.addView(makeMuted("Load or paste a ComfyUI workflow saved in API format. Native mode edits this JSON, then sends it to /prompt."));
 
@@ -337,7 +320,6 @@ public class MainActivity extends Activity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
         Button loadFile = makeSecondaryButton("Load JSON file");
         Button applyJson = makePrimaryButton("Apply JSON");
         row.addView(loadFile, weightButtonParams());
@@ -350,18 +332,16 @@ public class MainActivity extends Activity {
         LinearLayout card = makeCard();
         nativeContent.addView(card, cardParams());
         card.addView(makeCardHeader("No API workflow loaded"));
-        card.addView(makeMuted("In ComfyUI on your PC, export/save the workflow in API format, then load that JSON here. After that this app can upload images, run generation and open results without relying on the desktop canvas."));
+        card.addView(makeMuted("Export/save your ComfyUI workflow in API format, then load that JSON here. After that this app can upload images, run generation and open results without relying on the desktop canvas."));
     }
 
     private void addQuickActionsCard() {
         LinearLayout card = makeCard();
         nativeContent.addView(card, cardParams());
         card.addView(makeCardHeader("Run controls"));
-
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
-
         Button apply = makeSecondaryButton("Apply fields");
         Button run = makePrimaryButton("Run workflow");
         row.addView(apply, weightButtonParams());
@@ -397,12 +377,10 @@ public class MainActivity extends Activity {
     private void addApiNodeCard(String nodeId, String classType, JSONObject inputs) {
         LinearLayout card = makeCard();
         nativeContent.addView(card, cardParams());
-
         card.addView(makeCardHeader("#" + nodeId + "  " + prettifyClassType(classType)));
 
         if (isLoadImageClass(classType)) {
-            TextView label = makeLabel("Image input");
-            card.addView(label);
+            card.addView(makeLabel("Image input"));
             String imageKey = findImageInputKey(inputs);
             Button choose = makePrimaryButton("Choose image from phone");
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
@@ -412,8 +390,7 @@ public class MainActivity extends Activity {
         }
 
         if (isOutputClass(classType)) {
-            TextView label = makeLabel("Output");
-            card.addView(label);
+            card.addView(makeLabel("Output"));
             Button preview = makeSecondaryButton("Preview latest output");
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54));
             p.setMargins(0, 0, 0, dp(12));
@@ -429,15 +406,11 @@ public class MainActivity extends Activity {
             addApiField(card, nodeId, key, value, classType);
             added = true;
         }
-        if (!added) {
-            card.addView(makeMuted("No directly editable primitive inputs in this node."));
-        }
+        if (!added) card.addView(makeMuted("No directly editable primitive inputs in this node."));
     }
 
     private void addApiField(LinearLayout card, String nodeId, String key, Object value, String classType) {
-        String label = humanLabel(key, classType);
-        card.addView(makeLabel(label));
-
+        card.addView(makeLabel(humanLabel(key, classType)));
         EditText editor = new EditText(this);
         editor.setText(value == JSONObject.NULL ? "" : String.valueOf(value));
         editor.setTextColor(Color.WHITE);
@@ -459,7 +432,6 @@ public class MainActivity extends Activity {
         } else {
             editor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         }
-
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, multiline ? dp(116) : dp(56));
         p.setMargins(0, 0, 0, dp(12));
         card.addView(editor, p);
@@ -484,21 +456,27 @@ public class MainActivity extends Activity {
             return;
         }
         String current = graphWebView.getUrl();
-        if (current == null || !current.startsWith(base) || current.contains("/view")) {
-            graphWebView.loadUrl(base);
-        }
+        if (current == null || !current.startsWith(base) || current.contains("/view")) graphWebView.loadUrl(base);
         statusText.setText("Graph mode is advanced/fallback. Native mode remains available.");
         enterImmersiveMode();
     }
 
     private void chooseWorkflowJsonFile() {
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             startActivityForResult(Intent.createChooser(intent, "Choose API workflow JSON"), WORKFLOW_PICKER_REQUEST);
         } catch (Exception e) {
-            toast("No file picker available");
+            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+            fallback.addCategory(Intent.CATEGORY_OPENABLE);
+            fallback.setType("*/*");
+            try {
+                startActivityForResult(Intent.createChooser(fallback, "Choose API workflow JSON"), WORKFLOW_PICKER_REQUEST);
+            } catch (Exception ex) {
+                toast("No file picker available");
+            }
         }
     }
 
@@ -518,21 +496,38 @@ public class MainActivity extends Activity {
             toast("Image input not found in this node");
             return;
         }
+        clearPendingImagePick();
         pendingImageNodeId = nodeId;
         pendingImageInputKey = inputKey;
-        Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
+
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("image/*");
+        intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         try {
             toast("Opening image picker...");
             startActivityForResult(Intent.createChooser(intent, "Choose image"), IMAGE_PICKER_REQUEST);
         } catch (Exception e) {
-            toast("No image picker available");
+            Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+            fallback.addCategory(Intent.CATEGORY_OPENABLE);
+            fallback.setType("image/*");
+            try {
+                toast("Opening image picker...");
+                startActivityForResult(Intent.createChooser(fallback, "Choose image"), IMAGE_PICKER_REQUEST);
+            } catch (Exception ex) {
+                clearPendingImagePick();
+                toast("No image picker available");
+            }
         }
     }
 
-    private void uploadPickedImage(Uri uri) {
-        if (uri == null || pendingImageNodeId == null || pendingImageInputKey == null) return;
+    private void clearPendingImagePick() {
+        pendingImageNodeId = null;
+        pendingImageInputKey = null;
+    }
+
+    private void uploadPickedImage(Uri uri, String nodeId, String inputKey) {
+        if (uri == null || nodeId == null || inputKey == null) return;
         String base = getNormalizedUrl();
         if (base.isEmpty()) {
             toast("Enter ComfyUI URL first");
@@ -545,7 +540,7 @@ public class MainActivity extends Activity {
                 String mime = getContentResolver().getType(uri);
                 byte[] bytes = readBytes(uri);
                 String uploadedName = uploadImageMultipart(base, bytes, name, mime);
-                setWorkflowInput(pendingImageNodeId, pendingImageInputKey, uploadedName);
+                setWorkflowInput(nodeId, inputKey, uploadedName);
                 saveWorkflowToPrefs();
                 mainHandler.post(() -> {
                     setBusy(false, "Uploaded image: " + uploadedName);
@@ -618,13 +613,9 @@ public class MainActivity extends Activity {
                     mainHandler.post(() -> statusText.setText("Output ready. Press Output to open it."));
                     return;
                 }
-            } catch (Exception ignored) {
-            }
-            if (pollAttempts < 120) {
-                mainHandler.postDelayed(this::pollPromptHistory, 2000);
-            } else {
-                mainHandler.post(() -> statusText.setText("Timed out waiting for output. You can still check Output later."));
-            }
+            } catch (Exception ignored) {}
+            if (pollAttempts < 120) mainHandler.postDelayed(this::pollPromptHistory, 2000);
+            else mainHandler.post(() -> statusText.setText("Timed out waiting for output. You can still check Output later."));
         }).start();
     }
 
@@ -668,13 +659,7 @@ public class MainActivity extends Activity {
     }
 
     private void showMenuDialog() {
-        String[] items = new String[] {
-                "Load API workflow JSON",
-                "Apply JSON editor",
-                "Test connection",
-                "Clear graph WebView cache",
-                "Show URL panel"
-        };
+        String[] items = new String[]{"Load API workflow JSON", "Apply JSON editor", "Test connection", "Clear graph WebView cache"};
         new AlertDialog.Builder(this)
                 .setTitle("Menu")
                 .setItems(items, (dialog, which) -> {
@@ -686,7 +671,6 @@ public class MainActivity extends Activity {
                         graphWebView.clearHistory();
                         toast("Graph cache cleared");
                     }
-                    if (which == 4) topBar.setVisibility(topBar.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
                 })
                 .show();
     }
@@ -701,8 +685,8 @@ public class MainActivity extends Activity {
         setBusy(true, "Testing /system_stats...");
         new Thread(() -> {
             try {
-                String body = getText(base + "/system_stats");
-                mainHandler.post(() -> setBusy(false, body.isEmpty() ? "Connection OK" : "Connection OK. ComfyUI API reachable."));
+                getText(base + "/system_stats");
+                mainHandler.post(() -> setBusy(false, "Connection OK. ComfyUI API reachable."));
             } catch (Exception e) {
                 mainHandler.post(() -> setBusy(false, "Connection failed: " + e.getClass().getSimpleName()));
             }
@@ -711,9 +695,7 @@ public class MainActivity extends Activity {
 
     private void applyFieldsToWorkflowObject() {
         if (workflowObject == null) return;
-        for (ApiField field : apiFields) {
-            setWorkflowInput(field.nodeId, field.inputKey, coerceInputValue(field.editor.getText().toString()));
-        }
+        for (ApiField field : apiFields) setWorkflowInput(field.nodeId, field.inputKey, coerceInputValue(field.editor.getText().toString()));
     }
 
     private Object coerceInputValue(String raw) {
@@ -749,17 +731,11 @@ public class MainActivity extends Activity {
 
     private void saveWorkflowToPrefs() {
         if (workflowObject == null) return;
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_WORKFLOW_API_JSON, workflowObject.toString())
-                .apply();
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_WORKFLOW_API_JSON, workflowObject.toString()).apply();
     }
 
     private void saveUrl() {
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_URL, getNormalizedUrl())
-                .apply();
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit().putString(KEY_URL, getNormalizedUrl()).apply();
     }
 
     private String getNormalizedUrl() {
@@ -936,9 +912,7 @@ public class MainActivity extends Activity {
     private boolean nodeHasUsefulInputs(String classType, JSONObject inputs) {
         if (isLoadImageClass(classType) || isOutputClass(classType)) return true;
         Iterator<String> keys = inputs.keys();
-        while (keys.hasNext()) {
-            if (isEditablePrimitive(inputs.opt(keys.next()))) return true;
-        }
+        while (keys.hasNext()) if (isEditablePrimitive(inputs.opt(keys.next()))) return true;
         return false;
     }
 
@@ -1042,6 +1016,12 @@ public class MainActivity extends Activity {
     private LinearLayout.LayoutParams cardParams() {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
         p.setMargins(0, 0, 0, dp(14));
+        return p;
+    }
+
+    private LinearLayout.LayoutParams weightButtonParams() {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(46), 1);
+        p.setMargins(dp(3), 0, dp(3), 0);
         return p;
     }
 
@@ -1164,12 +1144,19 @@ public class MainActivity extends Activity {
             return;
         }
         if (requestCode == IMAGE_PICKER_REQUEST) {
-            if (resultCode == RESULT_OK && data != null) uploadPickedImage(data.getData());
+            String nodeId = pendingImageNodeId;
+            String inputKey = pendingImageInputKey;
+            clearPendingImagePick();
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
+                uploadPickedImage(data.getData(), nodeId, inputKey);
+            } else {
+                statusText.setText("Image selection cancelled. You can press Choose image again.");
+            }
             enterImmersiveMode();
             return;
         }
         if (requestCode == WORKFLOW_PICKER_REQUEST) {
-            if (resultCode == RESULT_OK && data != null) {
+            if (resultCode == RESULT_OK && data != null && data.getData() != null) {
                 try {
                     workflowJsonEditor.setText(readUriText(data.getData()));
                     applyWorkflowJsonFromEditor();
@@ -1186,11 +1173,8 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         if (graphWebView.getVisibility() == View.VISIBLE) {
-            if (graphWebView.canGoBack()) {
-                graphWebView.goBack();
-            } else {
-                showNativeMode();
-            }
+            if (graphWebView.canGoBack()) graphWebView.goBack();
+            else showNativeMode();
             return;
         }
         super.onBackPressed();
