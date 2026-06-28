@@ -193,7 +193,7 @@ public class MainActivity extends Activity {
         drawerHeader.addView(closeNodes, new LinearLayout.LayoutParams(dp(56), dp(50)));
 
         TextView drawerHint = new TextView(this);
-        drawerHint.setText("Large mobile controls. Edit fields, then press Apply card.");
+        drawerHint.setText("Edit node parameters. Use Choose image for Load Image nodes.");
         drawerHint.setTextColor(Color.rgb(156, 163, 175));
         drawerHint.setTextSize(15);
         drawerHint.setPadding(0, 0, 0, dp(10));
@@ -256,6 +256,14 @@ public class MainActivity extends Activity {
             statusText.setVisibility(View.VISIBLE);
         }));
 
+        content.addView(makeSectionTitle("Workflow"));
+        content.addView(makeMenuAction("Preview latest output", () -> openLatestOutput()));
+        content.addView(makeMenuAction("Open full ComfyUI graph", () -> {
+            hideMenuDrawer();
+            returnToGraph();
+        }));
+        content.addView(makeMenuAction("Fit canvas", () -> fitComfyCanvas()));
+
         content.addView(makeSectionTitle("Settings"));
         content.addView(makeSettingCheckBox(KEY_LARGE_UI, "Large UI for Pixel 8a", true));
         content.addView(makeSettingCheckBox(KEY_HUMAN_LABELS, "Human-readable labels", true));
@@ -270,10 +278,6 @@ public class MainActivity extends Activity {
         content.addView(makeSettingCheckBox(KEY_AGGRESSIVE_GRAPH_RETURN, "Aggressive Graph return", true));
 
         content.addView(makeSectionTitle("Debug"));
-        content.addView(makeMenuAction("Open full ComfyUI graph", () -> {
-            hideMenuDrawer();
-            returnToGraph();
-        }));
         content.addView(makeMenuAction("Clear WebView cache", () -> {
             webView.clearCache(true);
             webView.clearHistory();
@@ -296,13 +300,13 @@ public class MainActivity extends Activity {
         Button params = makeToolbarButton("Params");
         Button graph = makeToolbarButton("Graph");
         Button run = makeToolbarButton("Run");
-        Button fit = makeToolbarButton("Fit");
+        Button output = makeToolbarButton("Output");
         Button menu = makeToolbarButton("Menu");
 
         mobileToolbar.addView(params, toolbarButtonParams());
         mobileToolbar.addView(graph, toolbarButtonParams());
         mobileToolbar.addView(run, toolbarButtonParams());
-        mobileToolbar.addView(fit, toolbarButtonParams());
+        mobileToolbar.addView(output, toolbarButtonParams());
         mobileToolbar.addView(menu, toolbarButtonParams());
 
         FrameLayout.LayoutParams mp = new FrameLayout.LayoutParams(-1, dp(68));
@@ -313,7 +317,7 @@ public class MainActivity extends Activity {
         params.setOnClickListener(v -> toggleNodeDrawer());
         graph.setOnClickListener(v -> returnToGraph());
         run.setOnClickListener(v -> runComfyQueue());
-        fit.setOnClickListener(v -> fitComfyCanvas());
+        output.setOnClickListener(v -> openLatestOutput());
         menu.setOnClickListener(v -> toggleMenuDrawer());
     }
 
@@ -422,6 +426,12 @@ public class MainActivity extends Activity {
         b.setIncludeFontPadding(false);
         b.setPadding(dp(8), 0, dp(8), 0);
         b.setBackground(buttonBackground(Color.rgb(37, 99, 235), dp(14)));
+        return b;
+    }
+
+    private Button makeSecondaryActionButton(String text) {
+        Button b = makeTinyActionButton(text);
+        b.setBackground(buttonBackground(Color.rgb(51, 65, 85), dp(14)));
         return b;
     }
 
@@ -714,6 +724,8 @@ public class MainActivity extends Activity {
         card.addView(details, new LinearLayout.LayoutParams(-1, -2));
 
         if (widgets != null && widgets.length() > 0) {
+            if (isLoadImageNode(title, type)) addLoadImageActions(details, id, widgets);
+            if (isOutputNode(title, type)) addOutputActions(details);
             details.addView(makeDrawerText("Editable fields", 16, Color.WHITE));
             for (int i = 0; i < widgets.length(); i++) {
                 JSONObject w = widgets.getJSONObject(i);
@@ -721,9 +733,10 @@ public class MainActivity extends Activity {
                 String labelName = displayWidgetName(title, type, rawName, i);
                 String wType = clean(w.optString("type", ""));
                 String wValue = w.optString("value", "");
+                if (isPseudoUploadWidget(title, type, rawName, labelName)) continue;
                 fields.add(addWidgetEditor(details, id, i, labelName, rawName, wType, wValue, !oneApply));
             }
-            if (oneApply) {
+            if (oneApply && !fields.isEmpty()) {
                 Button applyCard = makeTinyActionButton("Apply card");
                 LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(56));
                 p.setMargins(0, dp(14), 0, 0);
@@ -756,6 +769,58 @@ public class MainActivity extends Activity {
             details.setVisibility(details.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
             enterImmersiveMode();
         });
+    }
+
+    private void addLoadImageActions(LinearLayout details, int nodeId, JSONArray widgets) {
+        int imageWidgetIndex = findImageWidgetIndex(widgets);
+        if (imageWidgetIndex < 0) return;
+        TextView title = makeDrawerText("Image input", 16, Color.WHITE);
+        title.setPadding(dp(4), dp(8), dp(4), dp(4));
+        details.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        Button choose = makeTinyActionButton("Choose image from phone");
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
+        p.setMargins(0, 0, 0, dp(10));
+        details.addView(choose, p);
+        choose.setOnClickListener(v -> triggerLoadImagePicker(nodeId));
+    }
+
+    private void addOutputActions(LinearLayout details) {
+        TextView title = makeDrawerText("Output", 16, Color.WHITE);
+        title.setPadding(dp(4), dp(8), dp(4), dp(4));
+        details.addView(title, new LinearLayout.LayoutParams(-1, -2));
+
+        Button preview = makeSecondaryActionButton("Preview latest output");
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58));
+        p.setMargins(0, 0, 0, dp(10));
+        details.addView(preview, p);
+        preview.setOnClickListener(v -> openLatestOutput());
+    }
+
+    private int findImageWidgetIndex(JSONArray widgets) {
+        for (int i = 0; i < widgets.length(); i++) {
+            JSONObject w = widgets.optJSONObject(i);
+            if (w == null) continue;
+            String name = w.optString("name", "").toLowerCase();
+            if (name.equals("image") || name.contains("image")) return i;
+        }
+        return widgets.length() > 0 ? 0 : -1;
+    }
+
+    private boolean isLoadImageNode(String title, String type) {
+        String s = ((title == null ? "" : title) + " " + (type == null ? "" : type)).toLowerCase();
+        return s.contains("load image") || s.contains("loadimage");
+    }
+
+    private boolean isOutputNode(String title, String type) {
+        String s = ((title == null ? "" : title) + " " + (type == null ? "" : type)).toLowerCase();
+        return s.contains("save video") || s.contains("savevideo") || s.contains("save image") || s.contains("saveimage") || s.contains("preview");
+    }
+
+    private boolean isPseudoUploadWidget(String title, String type, String rawName, String labelName) {
+        if (!isLoadImageNode(title, type)) return false;
+        String n = ((rawName == null ? "" : rawName) + " " + (labelName == null ? "" : labelName)).toLowerCase();
+        return n.equals("upload upload") || n.equals("upload") || n.contains("upload button");
     }
 
     private WidgetField addWidgetEditor(LinearLayout details, int nodeId, int widgetIndex, String name, String rawName, String type, String value, boolean inlineApply) {
@@ -829,6 +894,7 @@ public class MainActivity extends Activity {
         if (n.equals("format")) return "Format";
         if (n.equals("codec")) return "Codec";
         if (n.equals("image")) return "Image";
+        if (n.equals("upload")) return "Upload";
 
         if ((title.contains("image to video") || type.contains("ltx") || title.contains("ltx")) && n.startsWith("value")) {
             if (index == 0) return "Prompt";
@@ -975,6 +1041,36 @@ public class MainActivity extends Activity {
             }
         });
         enterImmersiveMode();
+    }
+
+    private void triggerLoadImagePicker(int nodeId) {
+        injectMobileLayer();
+        String script = "(function(){"
+                + "var graph=(window.app&&window.app.graph)||(window.graph)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);"
+                + "var canvas=(window.app&&window.app.canvas)||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas);"
+                + "if(!graph)return false;"
+                + "var n=(graph.getNodeById&&graph.getNodeById(" + nodeId + "))||((graph._nodes||graph.nodes||[]).find(function(x){return x.id==" + nodeId + ";}));"
+                + "if(!n||!n.widgets)return false;"
+                + "for(var i=0;i<n.widgets.length;i++){var w=n.widgets[i];var name=((w&&w.name)||'').toLowerCase();if(name.indexOf('upload')>=0||name.indexOf('choose')>=0){try{if(w.callback){w.callback.call(w,w.value,canvas,n,n.pos||[0,0],null);return true;}}catch(e){}}}"
+                + "return false;"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if (!"true".equals(value)) Toast.makeText(this, "Upload widget not found", Toast.LENGTH_SHORT).show();
+        });
+    }
+
+    private void openLatestOutput() {
+        Toast.makeText(this, "Trying latest output...", Toast.LENGTH_SHORT).show();
+        injectMobileLayer();
+        String script = "(async function(){"
+                + "function enc(v){return encodeURIComponent(v||'');}"
+                + "function first(arr){return arr&&arr.length?arr[0]:null;}"
+                + "try{var h=await fetch('/history').then(function(r){return r.json();});var found=null;Object.keys(h).forEach(function(pid){var outs=(h[pid]&&h[pid].outputs)||{};Object.keys(outs).forEach(function(nid){var o=outs[nid]||{};found=first(o.videos)||first(o.gifs)||first(o.images)||found;});});"
+                + "if(!found||!found.filename)return false;location.href='/view?filename='+enc(found.filename)+'&type='+enc(found.type||'output')+'&subfolder='+enc(found.subfolder||'');return true;}catch(e){return false;}"
+                + "})();";
+        webView.evaluateJavascript(script, value -> {
+            if ("false".equals(value)) Toast.makeText(this, "No output found yet", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void returnToGraph() {
