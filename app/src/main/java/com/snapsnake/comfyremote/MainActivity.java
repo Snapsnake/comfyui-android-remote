@@ -55,12 +55,14 @@ public class MainActivity extends Activity {
     private static final int REQ_IMAGE = 43;
     private static final int REQ_JSON = 44;
 
+    private LinearLayout topPanel;
     private EditText urlInput;
     private TextView status;
     private ProgressBar progress;
     private ScrollView nativePane;
     private LinearLayout content;
     private WebView graph;
+    private WebView output;
     private EditText jsonEditor;
     private ValueCallback<Uri[]> webFileCallback;
     private JSONObject workflow;
@@ -89,7 +91,7 @@ public class MainActivity extends Activity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         buildUi();
-        configureGraph();
+        configureWebViews();
         loadPrefs();
         renderNative();
         immersive();
@@ -99,6 +101,7 @@ public class MainActivity extends Activity {
         SharedPreferences p = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         urlInput.setText(p.getString(KEY_URL, "http://desktop-name.tailnet.ts.net:8188"));
         lastOutputUrl = p.getString(KEY_OUTPUT, "");
+        if (p.contains(KEY_URL) && topPanel != null) topPanel.setVisibility(View.GONE);
         String saved = p.getString(KEY_WORKFLOW, "");
         if (!saved.trim().isEmpty()) {
             try { workflow = new JSONObject(saved); } catch (JSONException ignored) { workflow = null; }
@@ -110,14 +113,14 @@ public class MainActivity extends Activity {
         root.setOrientation(LinearLayout.VERTICAL);
         root.setBackgroundColor(Color.rgb(2, 6, 23));
 
-        LinearLayout top = new LinearLayout(this);
-        top.setOrientation(LinearLayout.VERTICAL);
-        top.setPadding(dp(12), dp(8), dp(12), dp(8));
-        top.setBackgroundColor(Color.rgb(15, 23, 42));
-        root.addView(top, new LinearLayout.LayoutParams(-1, -2));
+        topPanel = new LinearLayout(this);
+        topPanel.setOrientation(LinearLayout.VERTICAL);
+        topPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
+        topPanel.setBackgroundColor(Color.rgb(15, 23, 42));
+        root.addView(topPanel, new LinearLayout.LayoutParams(-1, -2));
 
         TextView title = text("ComfyUI Mobile Remote", 18, Color.WHITE);
-        top.addView(title);
+        topPanel.addView(title);
 
         urlInput = new EditText(this);
         urlInput.setSingleLine(true);
@@ -127,10 +130,10 @@ public class MainActivity extends Activity {
         urlInput.setTextSize(14);
         urlInput.setPadding(dp(12), 0, dp(12), 0);
         urlInput.setBackground(bg(Color.rgb(30, 41, 59), dp(12)));
-        top.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(46)));
+        topPanel.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(46)));
 
         LinearLayout topRow = row();
-        top.addView(topRow);
+        topPanel.addView(topRow);
         addTopButton(topRow, "Test", () -> testConnection());
         addTopButton(topRow, "Native", () -> showNative());
         addTopButton(topRow, "Graph", () -> showGraph());
@@ -141,9 +144,10 @@ public class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
 
-        status = text("Open Graph, load a workflow, then Import it into native phone controls.", 12, Color.rgb(203, 213, 225));
+        status = text("Tap this status line to show or hide the URL panel.", 12, Color.rgb(203, 213, 225));
         status.setPadding(dp(12), dp(6), dp(12), dp(6));
         status.setBackgroundColor(Color.rgb(15, 23, 42));
+        status.setOnClickListener(v -> toggleTopPanel());
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
         FrameLayout workspace = new FrameLayout(this);
@@ -162,6 +166,10 @@ public class MainActivity extends Activity {
         graph.setVisibility(View.GONE);
         workspace.addView(graph, new FrameLayout.LayoutParams(-1, -1));
 
+        output = new WebView(this);
+        output.setVisibility(View.GONE);
+        workspace.addView(output, new FrameLayout.LayoutParams(-1, -1));
+
         LinearLayout bottom = new LinearLayout(this);
         bottom.setOrientation(LinearLayout.HORIZONTAL);
         bottom.setGravity(Gravity.CENTER);
@@ -177,6 +185,13 @@ public class MainActivity extends Activity {
         setContentView(root);
     }
 
+    private void toggleTopPanel() {
+        boolean show = topPanel.getVisibility() != View.VISIBLE;
+        topPanel.setVisibility(show ? View.VISIBLE : View.GONE);
+        status.setText(show ? "URL panel shown. Tap here to hide it." : "URL panel hidden. Tap here to show it.");
+        immersive();
+    }
+
     private void addTopButton(LinearLayout parent, String label, Runnable action) {
         Button b = button(label, Color.rgb(51, 65, 85), 14, 14);
         b.setOnClickListener(v -> action.run());
@@ -189,21 +204,10 @@ public class MainActivity extends Activity {
         parent.addView(b, weight(dp(52)));
     }
 
-    @SuppressLint("SetJavaScriptEnabled") private void configureGraph() {
-        WebSettings s = graph.getSettings();
-        s.setJavaScriptEnabled(true);
-        s.setDomStorageEnabled(true);
-        s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true);
-        s.setAllowContentAccess(true);
-        s.setLoadWithOverviewMode(true);
-        s.setUseWideViewPort(true);
-        s.setBuiltInZoomControls(true);
-        s.setDisplayZoomControls(false);
-        s.setSupportZoom(true);
-        s.setTextZoom(100);
-        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        graph.setOverScrollMode(View.OVER_SCROLL_NEVER);
+    @SuppressLint("SetJavaScriptEnabled") private void configureWebViews() {
+        configureCommonWebView(graph);
+        configureCommonWebView(output);
+
         graph.setWebChromeClient(new WebChromeClient() {
             @Override public boolean onShowFileChooser(WebView view, ValueCallback<Uri[]> cb, FileChooserParams params) {
                 if (webFileCallback != null) webFileCallback.onReceiveValue(null);
@@ -216,15 +220,37 @@ public class MainActivity extends Activity {
             }
         });
         graph.setWebViewClient(new WebViewClient() {
-            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) {
-                busy(true, "Graph loading: " + url);
-            }
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) { busy(true, "Graph loading: " + url); }
             @Override public void onPageFinished(WebView view, String url) {
-                busy(false, "Graph loaded. Load your workflow, then press Import.");
+                busy(false, "Graph loaded. Load workflow, then press Import.");
                 injectGraphCss();
                 immersive();
             }
         });
+        output.setWebViewClient(new WebViewClient() {
+            @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) { busy(true, "Output loading..."); }
+            @Override public void onPageFinished(WebView view, String url) {
+                busy(false, "Output preview. Press Back or Native to return.");
+                immersive();
+            }
+        });
+    }
+
+    private void configureCommonWebView(WebView w) {
+        WebSettings s = w.getSettings();
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        s.setSupportZoom(true);
+        s.setTextZoom(100);
+        s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        w.setOverScrollMode(View.OVER_SCROLL_NEVER);
     }
 
     private void renderNative() {
@@ -236,7 +262,7 @@ public class MainActivity extends Activity {
         if (workflow == null) {
             LinearLayout c = card();
             c.addView(header("No workflow imported"));
-            c.addView(muted("Press Graph, load your normal ComfyUI workflow, then press Import. The app will convert it through ComfyUI's graphToPrompt and build phone controls."));
+            c.addView(muted("Press Graph, load your normal ComfyUI workflow, then press Import. If Import fails, the workflow may not be fully loaded in Graph yet."));
             content.addView(c, cardParams());
             return;
         }
@@ -362,20 +388,33 @@ public class MainActivity extends Activity {
     private void showNative() {
         nativePane.setVisibility(View.VISIBLE);
         graph.setVisibility(View.GONE);
+        output.setVisibility(View.GONE);
         renderNative();
-        status.setText("Native mode ready.");
+        status.setText("Native mode ready. Tap this line to show/hide URL panel.");
         immersive();
     }
 
     private void showGraph() {
         saveUrl();
         nativePane.setVisibility(View.GONE);
+        output.setVisibility(View.GONE);
         graph.setVisibility(View.VISIBLE);
+        topPanel.setVisibility(View.GONE);
         String base = baseUrl();
         if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         String cur = graph.getUrl();
         if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base);
-        status.setText("Graph mode. Load your workflow here, then press Import.");
+        status.setText("Graph mode. Load workflow here, then press Import.");
+        immersive();
+    }
+
+    private void showOutput(String url) {
+        topPanel.setVisibility(View.GONE);
+        nativePane.setVisibility(View.GONE);
+        graph.setVisibility(View.GONE);
+        output.setVisibility(View.VISIBLE);
+        output.loadUrl(url);
+        status.setText("Opening output inside the app...");
         immersive();
     }
 
@@ -398,7 +437,10 @@ public class MainActivity extends Activity {
         try {
             String decoded = new JSONArray("[" + value + "]").getString(0);
             JSONObject res = new JSONObject(decoded);
-            if (!res.optBoolean("ok", false)) { busy(false, "Import failed: " + res.optString("error")); return; }
+            if (!res.optBoolean("ok", false)) {
+                busy(false, "Import failed: " + res.optString("error") + ". Open Graph, wait for workflow, then Import.");
+                return;
+            }
             Object p = res.opt("prompt");
             if (p instanceof JSONObject) workflow = (JSONObject) p;
             else if (p instanceof String) workflow = new JSONObject((String) p);
@@ -498,7 +540,7 @@ public class MainActivity extends Activity {
     }
 
     private void openOutput() {
-        if (lastOutputUrl != null && !lastOutputUrl.trim().isEmpty()) { openUrl(lastOutputUrl); return; }
+        if (lastOutputUrl != null && !lastOutputUrl.trim().isEmpty()) { showOutput(lastOutputUrl); return; }
         String base = baseUrl();
         if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         busy(true, "Finding latest output...");
@@ -508,7 +550,7 @@ public class MainActivity extends Activity {
                 if (f == null) throw new IllegalStateException();
                 lastOutputUrl = base + "/view?filename=" + enc(f.filename) + "&type=" + enc(f.type) + "&subfolder=" + enc(f.subfolder);
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_OUTPUT, lastOutputUrl).apply();
-                handler.post(() -> { busy(false, "Opening output."); openUrl(lastOutputUrl); });
+                handler.post(() -> { busy(false, "Opening output inside app."); showOutput(lastOutputUrl); });
             } catch (Exception e) { handler.post(() -> busy(false, "No output found")); }
         }).start();
     }
@@ -519,7 +561,7 @@ public class MainActivity extends Activity {
         if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         busy(true, "Testing...");
         new Thread(() -> {
-            try { getText(base + "/system_stats"); handler.post(() -> busy(false, "Connection OK.")); }
+            try { getText(base + "/system_stats"); handler.post(() -> busy(false, "Connection OK. Tap status line to hide URL panel.")); }
             catch (Exception e) { handler.post(() -> busy(false, "Connection failed: " + e.getClass().getSimpleName())); }
         }).start();
     }
@@ -563,7 +605,6 @@ public class MainActivity extends Activity {
     private OutputFile findOutput(JSONObject history) throws JSONException { OutputFile found = null; Iterator<String> p = history.keys(); while (p.hasNext()) { JSONObject item = history.optJSONObject(p.next()); if (item == null) continue; JSONObject outs = item.optJSONObject("outputs"); if (outs == null) continue; Iterator<String> nodes = outs.keys(); while (nodes.hasNext()) { JSONObject o = outs.optJSONObject(nodes.next()); if (o == null) continue; OutputFile f = first(o.optJSONArray("videos")); if (f != null) found = f; f = first(o.optJSONArray("gifs")); if (f != null) found = f; f = first(o.optJSONArray("images")); if (f != null) found = f; } } return found; }
     private OutputFile first(JSONArray arr) { if (arr == null || arr.length() == 0) return null; JSONObject f = arr.optJSONObject(0); if (f == null) return null; String name = f.optString("filename", ""); if (name.isEmpty()) return null; return new OutputFile(name, f.optString("subfolder", ""), f.optString("type", "output")); }
     private String enc(String s) throws Exception { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); }
-    private void openUrl(String u) { try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(u))); } catch (Exception e) { toast("No app can open output URL"); } }
 
     private boolean useful(String cls, JSONObject inputs) { if (isLoadImage(cls) || isOutput(cls)) return true; Iterator<String> it = inputs.keys(); while (it.hasNext()) if (primitive(inputs.opt(it.next()))) return true; return false; }
     private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
@@ -599,6 +640,10 @@ public class MainActivity extends Activity {
         if (req == REQ_JSON) { if (result == RESULT_OK && data != null && data.getData() != null) { try { jsonEditor.setText(readText(data.getData())); applyJson(); } catch (Exception e) { toast("Could not read JSON"); } } immersive(); return; }
         super.onActivityResult(req, result, data);
     }
-    @Override public void onBackPressed() { if (graph.getVisibility() == View.VISIBLE) { if (graph.canGoBack()) graph.goBack(); else showNative(); return; } super.onBackPressed(); }
+    @Override public void onBackPressed() {
+        if (output.getVisibility() == View.VISIBLE) { showNative(); return; }
+        if (graph.getVisibility() == View.VISIBLE) { if (graph.canGoBack()) graph.goBack(); else showNative(); return; }
+        super.onBackPressed();
+    }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
 }
