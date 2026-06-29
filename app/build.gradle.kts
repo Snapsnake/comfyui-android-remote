@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0-compact-output"
+        versionCode = 5
+        versionName = "0.5.0-graph-import-fallback"
     }
 }
