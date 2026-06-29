@@ -144,7 +144,7 @@ public class MainActivity extends Activity {
         progress.setVisibility(View.GONE);
         root.addView(progress, new LinearLayout.LayoutParams(-1, dp(3)));
 
-        status = text("Tap this status line to show or hide the URL panel.", 12, Color.rgb(203, 213, 225));
+        status = text("URL panel hidden. Tap here to show it.", 12, Color.rgb(203, 213, 225));
         status.setPadding(dp(12), dp(6), dp(12), dp(6));
         status.setBackgroundColor(Color.rgb(15, 23, 42));
         status.setOnClickListener(v -> toggleTopPanel());
@@ -262,7 +262,7 @@ public class MainActivity extends Activity {
         if (workflow == null) {
             LinearLayout c = card();
             c.addView(header("No workflow imported"));
-            c.addView(muted("Press Graph, load your normal ComfyUI workflow, then press Import. If Import fails, the workflow may not be fully loaded in Graph yet."));
+            c.addView(muted("Press Graph, load your normal ComfyUI workflow, wait until nodes are visible, then press Import."));
             content.addView(c, cardParams());
             return;
         }
@@ -274,7 +274,7 @@ public class MainActivity extends Activity {
         LinearLayout c = card();
         content.addView(c, cardParams());
         c.addView(header("Workflow"));
-        c.addView(muted("Recommended: Graph → load workflow → Import. Manual API JSON import is available below."));
+        c.addView(muted("Recommended: Graph → load workflow → Import. Import now reads visible Graph nodes directly if graphToPrompt is unavailable."));
         LinearLayout r1 = row();
         c.addView(r1);
         addCardButton(r1, "Open Graph", false, () -> showGraph());
@@ -404,7 +404,7 @@ public class MainActivity extends Activity {
         if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         String cur = graph.getUrl();
         if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base);
-        status.setText("Graph mode. Load workflow here, then press Import.");
+        status.setText("Graph mode. Load workflow here, wait until nodes are visible, then press Import.");
         immersive();
     }
 
@@ -428,9 +428,18 @@ public class MainActivity extends Activity {
             toast("Graph opened. Load workflow, then press Import again.");
             return;
         }
-        busy(true, "Importing workflow from Graph...");
-        String js = "(async()=>{try{if(!(window.app&&app.graphToPrompt))return JSON.stringify({ok:false,error:'graphToPrompt unavailable'});let r=await app.graphToPrompt();let p=r&&(r.output||r.prompt);if(!p)return JSON.stringify({ok:false,error:'No API prompt'});return JSON.stringify({ok:true,prompt:p});}catch(e){return JSON.stringify({ok:false,error:String(e&&e.message?e.message:e)});}})();";
-        graph.evaluateJavascript(js, this::handleImport);
+        busy(true, "Importing visible Graph nodes...");
+        graph.evaluateJavascript(importScript(), this::handleImport);
+    }
+
+    private String importScript() {
+        return "(function(){" +
+                "function graphObj(){return (window.app&&app.graph)||window.graph||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);}" +
+                "function primitive(v){return v===null||['string','number','boolean'].indexOf(typeof v)>=0;}" +
+                "function linkInfo(g,id){var links=(g&&g.links)||{};var l=links[id];if(!l&&Array.isArray(links)){for(var i=0;i<links.length;i++){if(links[i]&&(links[i].id==id||links[i][0]==id)){l=links[i];break;}}}if(!l)return null;if(Array.isArray(l))return {origin:String(l[1]),slot:Number(l[2]||0)};return {origin:String(l.origin_id||l.source_id||l.from_id||l.origin||''),slot:Number(l.origin_slot||l.source_slot||l.from_slot||0)};}" +
+                "function fromGraph(){var g=graphObj();if(!g)return {ok:false,error:'Graph object not found'};var nodes=g._nodes||g.nodes||[];if(!nodes.length)return {ok:false,error:'No visible nodes in Graph'};var out={};for(var ni=0;ni<nodes.length;ni++){var n=nodes[ni];if(!n||n.id==null)continue;var cls=String(n.type||n.comfyClass||n.title||'');if(!cls)continue;var item={class_type:cls,inputs:{}};var ins=n.inputs||[];for(var ii=0;ii<ins.length;ii++){var inp=ins[ii];if(!inp||inp.link==null||!inp.name)continue;var li=linkInfo(g,inp.link);if(li&&li.origin)item.inputs[String(inp.name)]=[li.origin,li.slot];}var ws=n.widgets||[];for(var wi=0;wi<ws.length;wi++){var w=ws[wi];if(!w||!w.name)continue;var name=String(w.name);var type=String(w.type||'').toLowerCase();if(name==='upload'||type==='button')continue;var val=w.value;if(!primitive(val))continue;item.inputs[name]=val;}if(n.widgets_values&&ws.length){for(var vi=0;vi<Math.min(ws.length,n.widgets_values.length);vi++){var ww=ws[vi];if(!ww||!ww.name)continue;var nm=String(ww.name);if(item.inputs.hasOwnProperty(nm)||nm==='upload'||String(ww.type||'').toLowerCase()==='button')continue;var vv=n.widgets_values[vi];if(primitive(vv))item.inputs[nm]=vv;}}out[String(n.id)]=item;}return Object.keys(out).length?{ok:true,prompt:out,mode:'visible graph'}:{ok:false,error:'No importable nodes'};}" +
+                "try{var r=fromGraph();if(r.ok)return JSON.stringify(r);if(window.app&&app.graphToPrompt){try{var gp=app.graphToPrompt();if(gp&&typeof gp.then!=='function'){var p=gp.output||gp.prompt||gp;return JSON.stringify({ok:true,prompt:p,mode:'graphToPrompt'});}}catch(e){}}return JSON.stringify(r);}catch(e){return JSON.stringify({ok:false,error:String(e&&e.message?e.message:e)});}" +
+                "})()";
     }
 
     private void handleImport(String value) {
@@ -438,7 +447,7 @@ public class MainActivity extends Activity {
             String decoded = new JSONArray("[" + value + "]").getString(0);
             JSONObject res = new JSONObject(decoded);
             if (!res.optBoolean("ok", false)) {
-                busy(false, "Import failed: " + res.optString("error") + ". Open Graph, wait for workflow, then Import.");
+                busy(false, "Import failed: " + res.optString("error") + ". In Graph, wait until nodes are visible.");
                 return;
             }
             Object p = res.opt("prompt");
@@ -446,7 +455,8 @@ public class MainActivity extends Activity {
             else if (p instanceof String) workflow = new JSONObject((String) p);
             else { busy(false, "Import failed: unsupported prompt format"); return; }
             saveWorkflow();
-            busy(false, "Workflow imported. Native controls are ready.");
+            int count = workflow.length();
+            busy(false, "Imported " + count + " nodes. Native controls are ready.");
             showNative();
         } catch (Exception e) { busy(false, "Import failed: " + e.getClass().getSimpleName()); }
     }
@@ -607,7 +617,8 @@ public class MainActivity extends Activity {
     private String enc(String s) throws Exception { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); }
 
     private boolean useful(String cls, JSONObject inputs) { if (isLoadImage(cls) || isOutput(cls)) return true; Iterator<String> it = inputs.keys(); while (it.hasNext()) if (primitive(inputs.opt(it.next()))) return true; return false; }
-    private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
+    private boolean primitive(Object v) { return valueIsPrimitive(v); }
+    private boolean valueIsPrimitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
     private List<String> nodeIds() { List<String> k = new ArrayList<>(); Iterator<String> it = workflow.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k, (a,b)->{ try { return Integer.compare(Integer.parseInt(a), Integer.parseInt(b)); } catch(Exception e){ return a.compareTo(b); }}); return k; }
     private List<String> inputKeys(JSONObject o) { List<String> k = new ArrayList<>(); Iterator<String> it = o.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k); return k; }
     private boolean numericKey(String k) { String s = k.toLowerCase(); return s.contains("width") || s.contains("height") || s.contains("step") || s.contains("seed") || s.contains("cfg") || s.contains("duration") || s.contains("batch") || s.contains("fps") || s.contains("frame"); }
@@ -632,7 +643,12 @@ public class MainActivity extends Activity {
     private void busy(boolean on, String msg) { progress.setVisibility(on ? View.VISIBLE : View.GONE); status.setText(msg); }
     private void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_SHORT).show(); }
     private void injectGraphCss() { graph.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]')||document.createElement('meta');m.name='viewport';m.content='width=device-width,initial-scale=1,minimum-scale=.35,maximum-scale=3,user-scalable=yes';document.head.appendChild(m);})()", null); }
-    private void immersive() { Window w = getWindow(); w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION | View.SYSTEM_UI_FLAG_LAYOUT_STABLE); }
+    private void immersive() {
+        Window w = getWindow();
+        w.setStatusBarColor(Color.rgb(2, 6, 23));
+        w.setNavigationBarColor(Color.rgb(15, 23, 42));
+        w.getDecorView().setSystemUiVisibility(0);
+    }
     @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) immersive(); }
     @Override protected void onActivityResult(int req, int result, Intent data) {
         if (req == REQ_WEB_FILE) { if (webFileCallback != null) { webFileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data)); webFileCallback = null; } immersive(); return; }
