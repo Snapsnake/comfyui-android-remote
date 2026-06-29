@@ -145,7 +145,7 @@ public class MainActivity extends Activity {
         LinearLayout topRow = row();
         topPanel.addView(topRow);
         addTopButton(topRow, "Test", this::testConnection);
-        addTopButton(topRow, "Native", this::showNative);
+        addTopButton(topRow, "Params", this::showNative);
         addTopButton(topRow, "Graph", this::showGraph);
         addTopButton(topRow, "Import", this::importFromGraph);
 
@@ -197,7 +197,7 @@ public class MainActivity extends Activity {
         bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
         bottom.setBackgroundColor(Color.rgb(15, 23, 42));
         root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(72)));
-        addToolButton(bottom, "Native", this::showNative);
+        addToolButton(bottom, "Params", this::showNative);
         addToolButton(bottom, "Graph", this::showGraph);
         addToolButton(bottom, "Import", this::importFromGraph);
         addToolButton(bottom, "Run", this::runWorkflow);
@@ -226,7 +226,7 @@ public class MainActivity extends Activity {
         });
         output.setWebViewClient(new WebViewClient() {
             @Override public void onPageStarted(WebView view, String url, android.graphics.Bitmap favicon) { busy(true, "Output loading..."); }
-            @Override public void onPageFinished(WebView view, String url) { busy(false, "Output preview. Press Back or Native to return."); applySystemBars(); }
+            @Override public void onPageFinished(WebView view, String url) { busy(false, "Output preview. Press Back or Params to return."); applySystemBars(); }
         });
     }
 
@@ -242,8 +242,8 @@ public class MainActivity extends Activity {
     private void renderNative() {
         fields.clear();
         content.removeAllViews();
-        content.addView(text("Native workflow", 26, Color.WHITE));
-        content.addView(muted("Import Graph once, then use the phone UI: image upload, selectable fields, Run and Output."));
+        content.addView(text("Params", 26, Color.WHITE));
+        content.addView(muted("Main controls stay compact. Less common node fields are inside Advanced nodes."));
         if (workflow == null) {
             sourceCard();
             LinearLayout c = card();
@@ -251,7 +251,10 @@ public class MainActivity extends Activity {
             c.addView(muted("Open Graph, load your ComfyUI workflow, wait until nodes are visible, then press Import."));
             content.addView(c, cardParams());
         } else {
-            importedSummaryCard(); runCard(); nodeCards();
+            importedSummaryCard();
+            quickControlsCard();
+            runCard();
+            advancedNodesCard();
         }
         nativePane.post(this::updateScrollIndicator);
     }
@@ -279,10 +282,41 @@ public class MainActivity extends Activity {
     private void importedSummaryCard() {
         LinearLayout c = cardAccent(); content.addView(c, cardParams());
         c.addView(header("Workflow imported"));
-        c.addView(muted(workflow.length() + " runnable nodes loaded. Import now uses ComfyUI graphToPrompt when available."));
+        c.addView(muted(workflow.length() + " runnable nodes loaded. Params now shows only the main controls by default."));
         LinearLayout r = row(); c.addView(r);
-        addCardButton(r, "Collapse all", false, () -> { expandAllNodes = false; renderNative(); });
-        addCardButton(r, "Expand all", true, () -> { expandAllNodes = true; renderNative(); });
+        addCardButton(r, "Compact", false, () -> { expandAllNodes = false; renderNative(); });
+        addCardButton(r, "Show advanced", true, () -> { expandAllNodes = true; renderNative(); });
+    }
+
+    private void quickControlsCard() {
+        LinearLayout c = card(); content.addView(c, cardParams());
+        c.addView(header("Main controls"));
+        c.addView(muted("Images, prompts and core generation settings. Other nodes stay collapsed below."));
+        int shown = 0;
+        for (String id : nodeIds()) {
+            JSONObject node = workflow.optJSONObject(id); if (node == null) continue;
+            JSONObject inputs = node.optJSONObject("inputs"); if (inputs == null) continue;
+            String cls = node.optString("class_type", "Node"); if (isNonRunnable(cls) || isReroute(cls)) continue;
+            if (isLoadImage(cls)) { addImageControl(c, id, cls, inputs); shown++; continue; }
+            for (String key : inputKeys(inputs)) {
+                Object value = inputs.opt(key);
+                if (isQuickField(cls, key, value)) {
+                    addField(c, id, key, value, human(key) + " · #" + id + " " + prettify(cls));
+                    shown++;
+                }
+            }
+        }
+        if (shown == 0) c.addView(muted("No main controls found. Open Advanced nodes below for editable fields."));
+    }
+
+    private void addImageControl(LinearLayout c, String id, String cls, JSONObject inputs) {
+        String key = imageKey(inputs);
+        c.addView(label("Image · #" + id + " " + prettify(cls)));
+        Button choose = button("Choose image from phone", Color.rgb(37, 99, 235), 15, 14);
+        choose.setOnClickListener(v -> chooseImage(id, key));
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58)); p.setMargins(0, 0, 0, dp(8)); c.addView(choose, p);
+        Object current = inputs.opt(key);
+        if (current instanceof String && !String.valueOf(current).trim().isEmpty()) c.addView(muted("Current: " + shorten(String.valueOf(current), 80)));
     }
 
     private void runCard() {
@@ -299,34 +333,67 @@ public class MainActivity extends Activity {
         c.addView(generationBar, new LinearLayout.LayoutParams(-1, dp(10))); refreshGenerationUi();
     }
 
-    private void nodeCards() {
-        int shown = 0;
+    private void advancedNodesCard() {
+        List<String> ids = advancedNodeIds();
+        if (ids.isEmpty()) return;
+        LinearLayout c = card(); content.addView(c, cardParams());
+        final boolean[] visible = new boolean[]{expandAllNodes};
+        Button head = button((visible[0] ? "▾ " : "▸ ") + "Advanced nodes (" + ids.size() + ")", Color.rgb(30, 41, 59), 17, 16);
+        head.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); head.setPadding(dp(14), 0, dp(14), 0); c.addView(head, new LinearLayout.LayoutParams(-1, dp(58)));
+        TextView hint = muted("Collapsed to keep the phone UI readable. Open only when you need low-level node fields."); c.addView(hint);
+        LinearLayout list = new LinearLayout(this); list.setOrientation(LinearLayout.VERTICAL); list.setPadding(0, dp(6), 0, 0); c.addView(list, new LinearLayout.LayoutParams(-1, -2));
+        list.setVisibility(visible[0] ? View.VISIBLE : View.GONE);
+        for (String id : ids) addAdvancedNodeRow(list, id);
+        head.setOnClickListener(v -> { visible[0] = !visible[0]; list.setVisibility(visible[0] ? View.VISIBLE : View.GONE); head.setText((visible[0] ? "▾ " : "▸ ") + "Advanced nodes (" + ids.size() + ")"); nativePane.post(this::updateScrollIndicator); });
+    }
+
+    private void addAdvancedNodeRow(LinearLayout parent, String id) {
+        JSONObject node = workflow.optJSONObject(id); if (node == null) return;
+        JSONObject inputs = node.optJSONObject("inputs"); if (inputs == null) return;
+        String cls = node.optString("class_type", "Node");
+        final boolean[] expanded = new boolean[]{expandAllNodes};
+        Button head = button((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls), Color.rgb(15, 23, 42), 15, 12);
+        head.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); head.setPadding(dp(14), 0, dp(14), 0);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, dp(48)); hp.setMargins(0, dp(6), 0, 0); parent.addView(head, hp);
+        LinearLayout body = new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(dp(8), dp(8), dp(8), dp(2)); parent.addView(body, new LinearLayout.LayoutParams(-1, -2));
+        body.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
+        head.setOnClickListener(v -> { expanded[0] = !expanded[0]; body.setVisibility(expanded[0] ? View.VISIBLE : View.GONE); head.setText((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls)); nativePane.post(this::updateScrollIndicator); });
+        boolean added = false;
+        if (isOutput(cls)) { Button preview = button("Preview latest output", Color.rgb(51, 65, 85), 15, 14); preview.setOnClickListener(v -> openOutput()); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52)); p.setMargins(0, 0, 0, dp(10)); body.addView(preview, p); added = true; }
+        for (String key : inputKeys(inputs)) {
+            Object value = inputs.opt(key);
+            if (!primitive(value) || isQuickField(cls, key, value)) continue;
+            addField(body, id, key, value);
+            added = true;
+        }
+        if (!added) body.addView(muted("No advanced editable fields in this node."));
+    }
+
+    private List<String> advancedNodeIds() {
+        List<String> ids = new ArrayList<>();
         for (String id : nodeIds()) {
             JSONObject node = workflow.optJSONObject(id); if (node == null) continue;
             JSONObject inputs = node.optJSONObject("inputs"); if (inputs == null) continue;
-            String cls = node.optString("class_type", "Node"); if (!useful(cls, inputs)) continue;
-            nodeCard(id, cls, inputs); shown++;
+            String cls = node.optString("class_type", "Node");
+            if (isAdvancedNode(cls, inputs)) ids.add(id);
         }
-        if (shown == 0) { LinearLayout c = card(); c.addView(header("No editable nodes")); c.addView(muted("Import worked, but this workflow has no simple editable widget fields.")); content.addView(c, cardParams()); }
+        return ids;
     }
 
-    private void nodeCard(String id, String cls, JSONObject inputs) {
-        LinearLayout c = card(); content.addView(c, cardParams());
-        final boolean[] expanded = new boolean[]{expandAllNodes || isLoadImage(cls)};
-        Button head = button((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls), Color.rgb(30, 41, 59), 17, 16);
-        head.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); head.setPadding(dp(14), 0, dp(14), 0); c.addView(head, new LinearLayout.LayoutParams(-1, dp(58)));
-        LinearLayout body = new LinearLayout(this); body.setOrientation(LinearLayout.VERTICAL); body.setPadding(0, dp(10), 0, 0); c.addView(body, new LinearLayout.LayoutParams(-1, -2));
-        body.setVisibility(expanded[0] ? View.VISIBLE : View.GONE);
-        head.setOnClickListener(v -> { expanded[0] = !expanded[0]; body.setVisibility(expanded[0] ? View.VISIBLE : View.GONE); head.setText((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls)); nativePane.post(this::updateScrollIndicator); });
-        if (isLoadImage(cls)) { body.addView(label("Image input")); Button choose = button("Choose image from phone", Color.rgb(37, 99, 235), 15, 14); choose.setOnClickListener(v -> chooseImage(id, imageKey(inputs))); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(58)); p.setMargins(0, 0, 0, dp(12)); body.addView(choose, p); }
-        if (isOutput(cls)) { body.addView(label("Output")); Button preview = button("Preview latest output", Color.rgb(51, 65, 85), 15, 14); preview.setOnClickListener(v -> openOutput()); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(54)); p.setMargins(0, 0, 0, dp(12)); body.addView(preview, p); }
-        boolean added = false;
-        for (String key : inputKeys(inputs)) { Object value = inputs.opt(key); if (!primitive(value)) continue; addField(body, id, key, value); added = true; }
-        if (!added) body.addView(muted("No directly editable fields in this node."));
+    private boolean isAdvancedNode(String cls, JSONObject inputs) {
+        if (isNonRunnable(cls) || isReroute(cls)) return false;
+        if (isOutput(cls)) return true;
+        for (String key : inputKeys(inputs)) {
+            Object value = inputs.opt(key);
+            if (primitive(value) && !isQuickField(cls, key, value)) return true;
+        }
+        return false;
     }
 
-    private void addField(LinearLayout c, String id, String key, Object value) {
-        c.addView(label(human(key)));
+    private void addField(LinearLayout c, String id, String key, Object value) { addField(c, id, key, value, human(key)); }
+
+    private void addField(LinearLayout c, String id, String key, Object value, String title) {
+        c.addView(label(title));
         JSONArray opts = optionValues(id, key);
         if (opts != null && opts.length() > 0) {
             Button b = button(String.valueOf(value) + "  ▼", Color.rgb(15, 23, 42), 16, 14);
@@ -347,7 +414,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this).setTitle(human(key)).setItems(items, (d, which) -> { setInput(node, key, coerce(items[which])); saveWorkflow(); toast("Selected: " + items[which]); renderNative(); }).show();
     }
 
-    private void showNative() { nativePane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); setScrollIndicatorVisible(true); renderNative(); status.setText("Native mode ready. Tap this line to show/hide URL panel."); applySystemBars(); }
+    private void showNative() { nativePane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); setScrollIndicatorVisible(true); renderNative(); status.setText("Params ready. Tap this line to show/hide URL panel."); applySystemBars(); }
     private void showGraph() { saveUrl(); nativePane.setVisibility(View.GONE); output.setVisibility(View.GONE); graph.setVisibility(View.VISIBLE); setScrollIndicatorVisible(false); topPanel.setVisibility(View.GONE); String base = baseUrl(); if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; } String cur = graph.getUrl(); if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base); status.setText("Graph mode. Load workflow here, wait until nodes are visible, then press Import."); applySystemBars(); }
     private void showOutput(String url) { topPanel.setVisibility(View.GONE); nativePane.setVisibility(View.GONE); graph.setVisibility(View.GONE); output.setVisibility(View.VISIBLE); setScrollIndicatorVisible(false); output.loadUrl(url); status.setText("Opening output inside the app..."); applySystemBars(); }
 
@@ -441,6 +508,8 @@ public class MainActivity extends Activity {
         return s.contains("note") || s.contains("markdown") || s.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     }
 
+    private boolean isReroute(String cls) { String s = cls == null ? "" : cls.toLowerCase(); return s.contains("reroute"); }
+
     private String workflowProblem(JSONObject wf) {
         if (wf == null || wf.length() == 0) return "workflow is empty.";
         Iterator<String> it = wf.keys();
@@ -459,6 +528,7 @@ public class MainActivity extends Activity {
     private String generationProgressText() { long elapsed = Math.max(0L, System.currentTimeMillis() - generationStartMs); String eta = "ETA unknown"; if (lastGenerationDurationMs > 0) eta = "ETA about " + fmtMs(Math.max(0L, lastGenerationDurationMs - elapsed)); return (pollCount <= 1 ? "Queued" : "Generating") + " · elapsed " + fmtMs(elapsed) + " · " + eta; }
     private String fmtMs(long ms) { long sec = Math.max(0L, ms / 1000L), min = sec / 60L, rem = sec % 60L; return min > 0 ? min + "m " + rem + "s" : rem + "s"; }
     private String shortError(Exception e) { if (e == null) return "unknown error"; String s = e.getMessage(); if (s == null || s.trim().isEmpty()) s = e.getClass().getSimpleName(); s = s.replace('\n', ' ').replace('\r', ' ').trim(); return s.length() > 260 ? s.substring(0, 260) + "…" : s; }
+    private String shorten(String s, int max) { if (s == null) return ""; return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)) + "…"; }
 
     private void updateScrollIndicator() { if (nativePane == null || workspace == null || scrollTrack == null || scrollThumb == null) return; if (nativePane.getVisibility() != View.VISIBLE) { setScrollIndicatorVisible(false); return; } int extent = nativePane.getHeight(); int range = nativePane.getChildCount() > 0 && nativePane.getChildAt(0) != null ? nativePane.getChildAt(0).getHeight() : extent; int offset = nativePane.getScrollY(); if (range <= extent + dp(8)) { setScrollIndicatorVisible(false); return; } setScrollIndicatorVisible(true); int trackHeight = Math.max(1, workspace.getHeight() - dp(20)); int thumbHeight = Math.max(dp(48), Math.min(trackHeight, trackHeight * extent / Math.max(range, 1))); int maxTop = Math.max(0, trackHeight - thumbHeight); int top = dp(10) + (int) (maxTop * (offset / (float) Math.max(1, range - extent))); FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) scrollThumb.getLayoutParams(); p.height = thumbHeight; p.topMargin = top; p.rightMargin = dp(4); scrollThumb.setLayoutParams(p); }
     private void setScrollIndicatorVisible(boolean visible) { int v = visible ? View.VISIBLE : View.GONE; if (scrollTrack != null) scrollTrack.setVisibility(v); if (scrollThumb != null) scrollThumb.setVisibility(v); }
@@ -483,16 +553,27 @@ public class MainActivity extends Activity {
     private OutputFile findOutput(JSONObject history) throws JSONException { OutputFile found = null; Iterator<String> p = history.keys(); while (p.hasNext()) { JSONObject item = history.optJSONObject(p.next()); if (item == null) continue; JSONObject outs = item.optJSONObject("outputs"); if (outs == null) continue; Iterator<String> nodes = outs.keys(); while (nodes.hasNext()) { JSONObject o = outs.optJSONObject(nodes.next()); if (o == null) continue; OutputFile f = first(o.optJSONArray("videos")); if (f != null) found = f; f = first(o.optJSONArray("gifs")); if (f != null) found = f; f = first(o.optJSONArray("images")); if (f != null) found = f; } } return found; }
     private OutputFile first(JSONArray arr) { if (arr == null || arr.length() == 0) return null; JSONObject f = arr.optJSONObject(0); if (f == null) return null; String name = f.optString("filename", ""); if (name.isEmpty()) return null; return new OutputFile(name, f.optString("subfolder", ""), f.optString("type", "output")); }
     private String enc(String s) throws Exception { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); }
-    private boolean useful(String cls, JSONObject inputs) { if (isNonRunnable(cls)) return false; String c = cls == null ? "" : cls.toLowerCase(); if (c.contains("reroute")) return false; if (isLoadImage(cls) || isOutput(cls)) return true; Iterator<String> it = inputs.keys(); while (it.hasNext()) if (primitive(inputs.opt(it.next()))) return true; return false; }
     private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
     private List<String> nodeIds() { List<String> k = new ArrayList<>(); if (workflow == null) return k; Iterator<String> it = workflow.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k, (a,b)->{ try { return Integer.compare(Integer.parseInt(a), Integer.parseInt(b)); } catch(Exception e){ return a.compareTo(b); }}); return k; }
     private List<String> inputKeys(JSONObject o) { List<String> k = new ArrayList<>(); Iterator<String> it = o.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k); return k; }
     private JSONArray optionValues(String node, String key) { return fieldOptions == null ? null : fieldOptions.optJSONArray(node + ":" + key); }
-    private boolean numericKey(String k) { String s = k.toLowerCase(); return s.contains("width") || s.contains("height") || s.contains("step") || s.contains("seed") || s.contains("cfg") || s.contains("duration") || s.contains("batch") || s.contains("fps") || s.contains("frame"); }
+
+    private boolean isQuickField(String cls, String key, Object value) {
+        if (!primitive(value)) return false;
+        String c = cls == null ? "" : cls.toLowerCase();
+        String k = key == null ? "" : key.toLowerCase();
+        if (isLoadImage(cls)) return k.equals("image") || k.endsWith("_image") || k.contains("image");
+        if ((c.contains("cliptextencode") || c.contains("text encode") || c.contains("prompt")) && (k.equals("text") || k.equals("prompt") || k.equals("positive") || k.equals("negative") || k.contains("prompt"))) return true;
+        if ((c.contains("ksampler") || c.contains("sampler") || c.contains("randomnoise") || c.equals("noise") || c.contains("scheduler")) && (k.equals("seed") || k.equals("noise_seed") || k.endsWith("_seed") || k.equals("steps") || k.equals("cfg") || k.equals("sampler_name") || k.equals("scheduler") || k.equals("denoise"))) return true;
+        if ((c.contains("emptylatent") || c.contains("latent image") || c.contains("videolatent") || c.contains("sd3latent")) && (k.equals("width") || k.equals("height") || k.equals("batch_size") || k.equals("batch") || k.equals("length") || k.equals("frames") || k.equals("fps"))) return true;
+        return k.equals("ckpt_name") || k.equals("lora_name") || k.equals("vae_name") || k.equals("clip_name") || k.equals("filename_prefix");
+    }
+
+    private boolean numericKey(String k) { String s = k.toLowerCase(); return s.contains("width") || s.contains("height") || s.contains("step") || s.contains("seed") || s.contains("cfg") || s.contains("duration") || s.contains("batch") || s.contains("fps") || s.contains("frame") || s.equals("denoise") || s.equals("length"); }
     private boolean isLoadImage(String c) { String s = c == null ? "" : c.toLowerCase(); return s.contains("loadimage") || s.contains("load image"); }
     private boolean isOutput(String c) { String s = c == null ? "" : c.toLowerCase(); return s.contains("saveimage") || s.contains("save image") || s.contains("savevideo") || s.contains("save video") || s.contains("previewimage") || s.contains("preview image"); }
     private String imageKey(JSONObject inputs) { for (String k : inputKeys(inputs)) if (k.equalsIgnoreCase("image") || k.toLowerCase().contains("image")) return k; return "image"; }
-    private String human(String k) { String s = k.toLowerCase(); if (s.equals("ckpt_name")) return "Checkpoint"; if (s.equals("lora_name")) return "LoRA"; if (s.equals("seed") || s.equals("noise_seed")) return "Seed"; if (s.equals("steps")) return "Steps"; if (s.equals("cfg")) return "CFG"; if (s.equals("width")) return "Width"; if (s.equals("height")) return "Height"; if (s.equals("filename_prefix")) return "Filename prefix"; if (s.equals("image")) return "Image"; if (s.equals("text") || s.equals("prompt") || s.equals("positive")) return "Prompt"; return prettify(k.replace('_', ' ')); }
+    private String human(String k) { String s = k.toLowerCase(); if (s.equals("ckpt_name")) return "Checkpoint"; if (s.equals("lora_name")) return "LoRA"; if (s.equals("seed") || s.equals("noise_seed")) return "Seed"; if (s.equals("steps")) return "Steps"; if (s.equals("cfg")) return "CFG"; if (s.equals("width")) return "Width"; if (s.equals("height")) return "Height"; if (s.equals("filename_prefix")) return "Filename prefix"; if (s.equals("image")) return "Image"; if (s.equals("text") || s.equals("prompt") || s.equals("positive")) return "Prompt"; if (s.equals("negative")) return "Negative prompt"; return prettify(k.replace('_', ' ')); }
     private String prettify(String v) { return v == null ? "Node" : v.replace('_',' ').replaceAll("([a-z])([A-Z])", "$1 $2").trim(); }
 
     private LinearLayout row() { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setPadding(0, dp(8), 0, 0); return r; }
