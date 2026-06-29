@@ -8,6 +8,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.database.Cursor;
 import android.graphics.Color;
+import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
@@ -53,6 +54,7 @@ public class MainActivity extends Activity {
     private static final String KEY_WORKFLOW = "workflow_api_json";
     private static final String KEY_OPTIONS = "workflow_field_options";
     private static final String KEY_OUTPUT = "last_output_url";
+    private static final String KEY_LAST_DURATION = "last_generation_duration_ms";
     private static final int REQ_WEB_FILE = 42;
     private static final int REQ_IMAGE = 43;
     private static final int REQ_JSON = 44;
@@ -61,6 +63,8 @@ public class MainActivity extends Activity {
     private EditText urlInput;
     private TextView status;
     private ProgressBar progress;
+    private ProgressBar generationBar;
+    private TextView generationText;
     private FrameLayout workspace;
     private ScrollView nativePane;
     private LinearLayout content;
@@ -79,6 +83,9 @@ public class MainActivity extends Activity {
     private String lastOutputUrl;
     private String currentPromptId;
     private int pollCount;
+    private boolean generationRunning = false;
+    private long generationStartMs = 0L;
+    private long lastGenerationDurationMs = 0L;
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static class ApiField {
@@ -108,6 +115,7 @@ public class MainActivity extends Activity {
         SharedPreferences p = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         urlInput.setText(p.getString(KEY_URL, "http://desktop-name.tailnet.ts.net:8188"));
         lastOutputUrl = p.getString(KEY_OUTPUT, "");
+        lastGenerationDurationMs = p.getLong(KEY_LAST_DURATION, 0L);
         if (p.contains(KEY_URL) && topPanel != null) topPanel.setVisibility(View.GONE);
         String saved = p.getString(KEY_WORKFLOW, "");
         if (!saved.trim().isEmpty()) {
@@ -133,21 +141,21 @@ public class MainActivity extends Activity {
         topPanel.addView(title);
 
         urlInput = new EditText(this);
+        applySoftFont(urlInput, 14);
         urlInput.setSingleLine(true);
         urlInput.setTextColor(Color.WHITE);
         urlInput.setHintTextColor(Color.rgb(148, 163, 184));
         urlInput.setHint("http://desktop-name.tailnet.ts.net:8188");
-        urlInput.setTextSize(14);
         urlInput.setPadding(dp(12), 0, dp(12), 0);
         urlInput.setBackground(bgStroke(Color.rgb(30, 41, 59), dp(12), Color.rgb(71, 85, 105), 1));
         topPanel.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(46)));
 
         LinearLayout topRow = row();
         topPanel.addView(topRow);
-        addTopButton(topRow, "Test", () -> testConnection());
-        addTopButton(topRow, "Native", () -> showNative());
-        addTopButton(topRow, "Graph", () -> showGraph());
-        addTopButton(topRow, "Import", () -> importFromGraph());
+        addTopButton(topRow, "Test", this::testConnection);
+        addTopButton(topRow, "Native", this::showNative);
+        addTopButton(topRow, "Graph", this::showGraph);
+        addTopButton(topRow, "Import", this::importFromGraph);
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -201,11 +209,11 @@ public class MainActivity extends Activity {
         bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
         bottom.setBackgroundColor(Color.rgb(15, 23, 42));
         root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(72)));
-        addToolButton(bottom, "Native", () -> showNative());
-        addToolButton(bottom, "Graph", () -> showGraph());
-        addToolButton(bottom, "Import", () -> importFromGraph());
-        addToolButton(bottom, "Run", () -> runWorkflow());
-        addToolButton(bottom, "Output", () -> openOutput());
+        addToolButton(bottom, "Native", this::showNative);
+        addToolButton(bottom, "Graph", this::showGraph);
+        addToolButton(bottom, "Import", this::importFromGraph);
+        addToolButton(bottom, "Run", this::runWorkflow);
+        addToolButton(bottom, "Output", this::openOutput);
 
         setContentView(root);
     }
@@ -281,7 +289,7 @@ public class MainActivity extends Activity {
     private void renderNative() {
         fields.clear();
         content.removeAllViews();
-        content.addView(text("Native workflow", 28, Color.WHITE));
+        content.addView(text("Native workflow", 26, Color.WHITE));
         content.addView(muted("Import Graph once, then use the phone UI: image upload, selectable fields, Run and Output."));
         if (workflow == null) {
             sourceCard();
@@ -305,14 +313,14 @@ public class MainActivity extends Activity {
         c.addView(muted("Recommended: Graph → load workflow → Import. Manual API JSON import is only a fallback."));
         LinearLayout r1 = row();
         c.addView(r1);
-        addCardButton(r1, "Open Graph", false, () -> showGraph());
-        addCardButton(r1, "Import from Graph", true, () -> importFromGraph());
+        addCardButton(r1, "Open Graph", false, this::showGraph);
+        addCardButton(r1, "Import from Graph", true, this::importFromGraph);
         jsonEditor = new EditText(this);
+        applySoftFont(jsonEditor, 13);
         jsonEditor.setText("");
         jsonEditor.setTextColor(Color.WHITE);
         jsonEditor.setHintTextColor(Color.rgb(148, 163, 184));
         jsonEditor.setHint("Fallback only: paste API workflow JSON here");
-        jsonEditor.setTextSize(13);
         jsonEditor.setGravity(Gravity.TOP | Gravity.LEFT);
         jsonEditor.setMinLines(4);
         jsonEditor.setMaxLines(8);
@@ -324,8 +332,8 @@ public class MainActivity extends Activity {
         c.addView(jsonEditor, jp);
         LinearLayout r2 = row();
         c.addView(r2);
-        addCardButton(r2, "Load JSON file", false, () -> chooseJson());
-        addCardButton(r2, "Apply JSON", true, () -> applyJson());
+        addCardButton(r2, "Load JSON file", false, this::chooseJson);
+        addCardButton(r2, "Apply JSON", true, this::applyJson);
     }
 
     private void importedSummaryCard() {
@@ -346,12 +354,22 @@ public class MainActivity extends Activity {
         LinearLayout r = row();
         c.addView(r);
         addCardButton(r, "Apply fields", false, () -> { applyFields(); saveWorkflow(); toast("Applied"); renderNative(); });
-        addCardButton(r, "Run workflow", true, () -> runWorkflow());
+        addCardButton(r, "Run workflow", true, this::runWorkflow);
         Button out = button("Open latest output", Color.rgb(51, 65, 85), 15, 14);
         out.setOnClickListener(v -> openOutput());
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52));
-        p.setMargins(dp(3), dp(10), dp(3), 0);
-        c.addView(out, p);
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1, dp(52));
+        op.setMargins(dp(3), dp(10), dp(3), dp(8));
+        c.addView(out, op);
+
+        generationText = muted(generationRunning ? "Generation running..." : generationIdleText());
+        c.addView(generationText);
+        generationBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        generationBar.setMax(100);
+        generationBar.setProgress(generationRunning ? 12 : 0);
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, dp(10));
+        gp.setMargins(dp(3), 0, dp(3), dp(4));
+        c.addView(generationBar, gp);
+        refreshGenerationUi();
     }
 
     private void nodeCards() {
@@ -378,7 +396,7 @@ public class MainActivity extends Activity {
         LinearLayout c = card();
         content.addView(c, cardParams());
         final boolean[] expanded = new boolean[]{expandAllNodes || isLoadImage(cls)};
-        Button head = button((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls), Color.rgb(30, 41, 59), 18, 16);
+        Button head = button((expanded[0] ? "▾ " : "▸ ") + "#" + id + "  " + prettify(cls), Color.rgb(30, 41, 59), 17, 16);
         head.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         head.setPadding(dp(14), 0, dp(14), 0);
         c.addView(head, new LinearLayout.LayoutParams(-1, dp(58)));
@@ -436,10 +454,10 @@ public class MainActivity extends Activity {
         }
 
         EditText e = new EditText(this);
+        applySoftFont(e, 16);
         e.setText(value == JSONObject.NULL ? "" : String.valueOf(value));
         e.setTextColor(Color.WHITE);
         e.setHintTextColor(Color.rgb(148, 163, 184));
-        e.setTextSize(17);
         e.setPadding(dp(12), 0, dp(12), 0);
         e.setBackground(bgStroke(Color.rgb(15, 23, 42), dp(14), Color.rgb(30, 41, 59), 1));
         boolean multi = key.toLowerCase().contains("prompt") || key.toLowerCase().contains("text") || String.valueOf(value).length() > 80;
@@ -524,18 +542,18 @@ public class MainActivity extends Activity {
             toast("Graph opened. Load workflow, then press Import again.");
             return;
         }
-        busy(true, "Importing visible Graph nodes...");
+        busy(true, "Importing workflow from Graph...");
         graph.evaluateJavascript(importScript(), this::handleImport);
     }
 
     private String importScript() {
-        return "(function(){" +
+        return "(async function(){" +
                 "function graphObj(){return (window.app&&app.graph)||window.graph||((window.LGraphCanvas&&window.LGraphCanvas.active_canvas)&&window.LGraphCanvas.active_canvas.graph);}" +
                 "function primitive(v){return v===null||['string','number','boolean'].indexOf(typeof v)>=0;}" +
                 "function linkInfo(g,id){var links=(g&&g.links)||{};var l=links[id];if(!l&&Array.isArray(links)){for(var i=0;i<links.length;i++){if(links[i]&&(links[i].id==id||links[i][0]==id)){l=links[i];break;}}}if(!l)return null;if(Array.isArray(l))return {origin:String(l[1]),slot:Number(l[2]||0)};return {origin:String(l.origin_id||l.source_id||l.from_id||l.origin||''),slot:Number(l.origin_slot||l.source_slot||l.from_slot||0)};}" +
                 "function optValues(w){var o=w&&w.options;var a=null;if(o){if(Array.isArray(o.values))a=o.values;else if(Array.isArray(o))a=o;}if(!a&&Array.isArray(w&&w.values))a=w.values;if(!a||!a.length)return null;return a.map(function(x){return String(x);});}" +
-                "function fromGraph(){var g=graphObj();if(!g)return {ok:false,error:'Graph object not found'};var nodes=g._nodes||g.nodes||[];if(!nodes.length)return {ok:false,error:'No visible nodes in Graph'};var out={};var options={};for(var ni=0;ni<nodes.length;ni++){var n=nodes[ni];if(!n||n.id==null)continue;var cls=String(n.type||n.comfyClass||n.title||'');if(!cls)continue;var item={class_type:cls,inputs:{}};var ins=n.inputs||[];for(var ii=0;ii<ins.length;ii++){var inp=ins[ii];if(!inp||inp.link==null||!inp.name)continue;var li=linkInfo(g,inp.link);if(li&&li.origin)item.inputs[String(inp.name)]=[li.origin,li.slot];}var ws=n.widgets||[];for(var wi=0;wi<ws.length;wi++){var w=ws[wi];if(!w||!w.name)continue;var name=String(w.name);var type=String(w.type||'').toLowerCase();if(name==='upload'||type==='button')continue;var opts=optValues(w);if(opts)options[String(n.id)+':'+name]=opts;var val=w.value;if(!primitive(val))continue;item.inputs[name]=val;}if(n.widgets_values&&ws.length){for(var vi=0;vi<Math.min(ws.length,n.widgets_values.length);vi++){var ww=ws[vi];if(!ww||!ww.name)continue;var nm=String(ww.name);if(item.inputs.hasOwnProperty(nm)||nm==='upload'||String(ww.type||'').toLowerCase()==='button')continue;var vv=n.widgets_values[vi];if(primitive(vv))item.inputs[nm]=vv;}}out[String(n.id)]=item;}return Object.keys(out).length?{ok:true,prompt:out,options:options,mode:'visible graph'}:{ok:false,error:'No importable nodes'};}" +
-                "try{var r=fromGraph();return JSON.stringify(r);}catch(e){return JSON.stringify({ok:false,error:String(e&&e.message?e.message:e)});}" +
+                "function fromGraph(){var g=graphObj();if(!g)return {ok:false,error:'Graph object not found'};var nodes=g._nodes||g.nodes||[];if(!nodes.length)return {ok:false,error:'No visible nodes in Graph'};var out={};var options={};for(var ni=0;ni<nodes.length;ni++){var n=nodes[ni];if(!n||n.id==null)continue;var cls=String(n.type||n.comfyClass||n.title||'');if(!cls)continue;var item={class_type:cls,inputs:{}};var ins=n.inputs||[];for(var ii=0;ii<ins.length;ii++){var inp=ins[ii];if(!inp||inp.link==null||!inp.name)continue;var li=linkInfo(g,inp.link);if(li&&li.origin)item.inputs[String(inp.name)]=[li.origin,li.slot];}var ws=n.widgets||[];for(var wi=0;wi<ws.length;wi++){var w=ws[wi];if(!w||!w.name)continue;var name=String(w.name);var type=String(w.type||'').toLowerCase();if(name==='upload'||type==='button')continue;var opts=optValues(w);if(opts)options[String(n.id)+':'+name]=opts;var val=w.value;if(!primitive(val))continue;item.inputs[name]=val;}if(n.widgets_values&&ws.length){for(var vi=0;vi<Math.min(ws.length,n.widgets_values.length);vi++){var ww=ws[vi];if(!ww||!ww.name)continue;var nm=String(ww.name);if(item.inputs.hasOwnProperty(nm)||nm==='upload'||String(ww.type||'').toLowerCase()==='button')continue;var vv=n.widgets_values[vi];if(primitive(vv))item.inputs[nm]=vv;}}out[String(n.id)]=item;}return Object.keys(out).length?{ok:true,prompt:out,options:options,mode:'visible graph'}:{ok:false,error:'No importable nodes',options:options};}" +
+                "try{var fg=fromGraph();if(window.app&&app.graphToPrompt){try{var gp=await app.graphToPrompt();var p=gp&&(gp.output||gp.prompt||gp);if(p&&Object.keys(p).length)return JSON.stringify({ok:true,prompt:p,options:(fg.options||{}),mode:'graphToPrompt'});}catch(e){}}return JSON.stringify(fg);}catch(e){return JSON.stringify({ok:false,error:String(e&&e.message?e.message:e)});}" +
                 "})()";
     }
 
@@ -555,10 +573,10 @@ public class MainActivity extends Activity {
             if (fieldOptions == null) fieldOptions = new JSONObject();
             saveWorkflow();
             saveOptions();
-            busy(false, "Imported " + workflow.length() + " nodes. Native controls are ready.");
+            busy(false, "Imported " + workflow.length() + " nodes via " + res.optString("mode", "Graph") + ". Native controls are ready.");
             expandAllNodes = false;
             showNative();
-        } catch (Exception e) { busy(false, "Import failed: " + e.getClass().getSimpleName()); }
+        } catch (Exception e) { busy(false, "Import failed: " + shortError(e)); }
     }
 
     private void chooseJson() {
@@ -619,7 +637,7 @@ public class MainActivity extends Activity {
                 setInput(node, key, uploaded);
                 saveWorkflow();
                 handler.post(() -> { busy(false, "Uploaded image: " + uploaded); toast("Image selected: " + uploaded); renderNative(); });
-            } catch (Exception e) { handler.post(() -> busy(false, "Image upload failed: " + e.getClass().getSimpleName())); }
+            } catch (Exception e) { handler.post(() -> busy(false, "Image upload failed: " + shortError(e))); }
         }).start();
     }
 
@@ -634,15 +652,24 @@ public class MainActivity extends Activity {
             JSONObject payload = new JSONObject();
             payload.put("prompt", workflow);
             payload.put("client_id", "android-remote-" + System.currentTimeMillis());
+            generationRunning = true;
+            generationStartMs = System.currentTimeMillis();
+            pollCount = 0;
+            updateGenerationUi(8, "Sending prompt to ComfyUI...");
             busy(true, "Sending prompt...");
             new Thread(() -> {
                 try {
                     JSONObject res = new JSONObject(postJson(base + "/prompt", payload.toString()));
                     currentPromptId = res.optString("prompt_id", "");
-                    if (currentPromptId.isEmpty()) throw new IllegalStateException("No prompt_id");
-                    pollCount = 0;
-                    handler.post(() -> { busy(false, "Queued. Waiting for output..."); pollHistory(); });
-                } catch (Exception e) { handler.post(() -> busy(false, "Run failed: " + e.getClass().getSimpleName())); }
+                    if (currentPromptId.isEmpty()) throw new IllegalStateException("ComfyUI did not return prompt_id");
+                    handler.post(() -> { busy(false, "Queued. Waiting for output..."); updateGenerationUi(15, "Queued. Waiting for ComfyUI to start..."); pollHistory(); });
+                } catch (Exception e) {
+                    handler.post(() -> {
+                        generationRunning = false;
+                        busy(false, "Run failed: " + shortError(e));
+                        updateGenerationUi(0, "Run failed: " + shortError(e));
+                    });
+                }
             }).start();
         } catch (JSONException e) { toast("Could not build prompt JSON"); }
     }
@@ -652,19 +679,32 @@ public class MainActivity extends Activity {
         pollCount++;
         String base = baseUrl();
         String pid = currentPromptId;
-        status.setText("Waiting for output... " + pollCount);
+        updateGenerationUi(estimatedProgressPercent(), generationProgressText());
+        status.setText("Generating... " + generationProgressText());
         new Thread(() -> {
             try {
                 OutputFile f = findOutput(new JSONObject(getText(base + "/history/" + enc(pid))));
                 if (f != null) {
                     lastOutputUrl = base + "/view?filename=" + enc(f.filename) + "&type=" + enc(f.type) + "&subfolder=" + enc(f.subfolder);
-                    getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_OUTPUT, lastOutputUrl).apply();
-                    handler.post(() -> status.setText("Output ready. Press Output."));
+                    lastGenerationDurationMs = Math.max(1L, System.currentTimeMillis() - generationStartMs);
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                            .putString(KEY_OUTPUT, lastOutputUrl)
+                            .putLong(KEY_LAST_DURATION, lastGenerationDurationMs)
+                            .apply();
+                    handler.post(() -> {
+                        generationRunning = false;
+                        busy(false, "Output ready. Press Output.");
+                        updateGenerationUi(100, "Output ready. Generation took " + fmtMs(lastGenerationDurationMs) + ".");
+                    });
                     return;
                 }
             } catch (Exception ignored) {}
-            if (pollCount < 120) handler.postDelayed(this::pollHistory, 2000);
-            else handler.post(() -> status.setText("Timed out waiting for output."));
+            if (pollCount < 240) handler.postDelayed(this::pollHistory, 2000);
+            else handler.post(() -> {
+                generationRunning = false;
+                busy(false, "Timed out waiting for output.");
+                updateGenerationUi(0, "Timed out waiting for output.");
+            });
         }).start();
     }
 
@@ -676,11 +716,11 @@ public class MainActivity extends Activity {
         new Thread(() -> {
             try {
                 OutputFile f = findOutput(new JSONObject(getText(base + "/history")));
-                if (f == null) throw new IllegalStateException();
+                if (f == null) throw new IllegalStateException("No output found in /history");
                 lastOutputUrl = base + "/view?filename=" + enc(f.filename) + "&type=" + enc(f.type) + "&subfolder=" + enc(f.subfolder);
                 getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_OUTPUT, lastOutputUrl).apply();
                 handler.post(() -> { busy(false, "Opening output inside app."); showOutput(lastOutputUrl); });
-            } catch (Exception e) { handler.post(() -> busy(false, "No output found")); }
+            } catch (Exception e) { handler.post(() -> busy(false, "No output found: " + shortError(e))); }
         }).start();
     }
 
@@ -691,8 +731,60 @@ public class MainActivity extends Activity {
         busy(true, "Testing...");
         new Thread(() -> {
             try { getText(base + "/system_stats"); handler.post(() -> busy(false, "Connection OK. Tap status line to hide URL panel.")); }
-            catch (Exception e) { handler.post(() -> busy(false, "Connection failed: " + e.getClass().getSimpleName())); }
+            catch (Exception e) { handler.post(() -> busy(false, "Connection failed: " + shortError(e))); }
         }).start();
+    }
+
+    private void updateGenerationUi(int percent, String message) {
+        if (generationBar != null) generationBar.setProgress(Math.max(0, Math.min(100, percent)));
+        if (generationText != null) generationText.setText(message);
+    }
+
+    private void refreshGenerationUi() {
+        if (generationRunning) updateGenerationUi(estimatedProgressPercent(), generationProgressText());
+        else updateGenerationUi(0, generationIdleText());
+    }
+
+    private String generationIdleText() {
+        if (lastGenerationDurationMs > 0) return "Ready. Last generation: " + fmtMs(lastGenerationDurationMs) + ".";
+        return "Ready. ETA appears after the first completed run.";
+    }
+
+    private int estimatedProgressPercent() {
+        if (!generationRunning || generationStartMs <= 0) return 0;
+        long elapsed = System.currentTimeMillis() - generationStartMs;
+        if (lastGenerationDurationMs > 0) {
+            return Math.max(10, Math.min(95, (int) ((elapsed * 100L) / Math.max(1L, lastGenerationDurationMs))));
+        }
+        return Math.max(10, Math.min(90, 15 + pollCount * 3));
+    }
+
+    private String generationProgressText() {
+        long elapsed = Math.max(0L, System.currentTimeMillis() - generationStartMs);
+        String eta = "ETA unknown";
+        if (lastGenerationDurationMs > 0) {
+            long remain = Math.max(0L, lastGenerationDurationMs - elapsed);
+            eta = "ETA about " + fmtMs(remain);
+        }
+        String stage = pollCount <= 1 ? "Queued" : "Generating";
+        return stage + " · elapsed " + fmtMs(elapsed) + " · " + eta;
+    }
+
+    private String fmtMs(long ms) {
+        long sec = Math.max(0L, ms / 1000L);
+        long min = sec / 60L;
+        long rem = sec % 60L;
+        if (min > 0) return min + "m " + rem + "s";
+        return rem + "s";
+    }
+
+    private String shortError(Exception e) {
+        if (e == null) return "unknown error";
+        String s = e.getMessage();
+        if (s == null || s.trim().isEmpty()) s = e.getClass().getSimpleName();
+        s = s.replace('\n', ' ').replace('\r', ' ').trim();
+        if (s.length() > 260) s = s.substring(0, 260) + "…";
+        return s;
     }
 
     private void updateScrollIndicator() {
@@ -700,9 +792,7 @@ public class MainActivity extends Activity {
         if (nativePane.getVisibility() != View.VISIBLE) { setScrollIndicatorVisible(false); return; }
         int extent = nativePane.getHeight();
         int range = extent;
-        if (nativePane.getChildCount() > 0 && nativePane.getChildAt(0) != null) {
-            range = nativePane.getChildAt(0).getHeight();
-        }
+        if (nativePane.getChildCount() > 0 && nativePane.getChildAt(0) != null) range = nativePane.getChildAt(0).getHeight();
         int offset = nativePane.getScrollY();
         if (range <= extent + dp(8)) { setScrollIndicatorVisible(false); return; }
         setScrollIndicatorVisible(true);
@@ -747,16 +837,16 @@ public class MainActivity extends Activity {
             part(out, b, "type", "input"); part(out, b, "overwrite", "true"); filePart(out, b, "image", filename, mime == null ? "application/octet-stream" : mime, bytes);
             out.write(("--" + b + "--\r\n").getBytes("UTF-8")); out.flush(); out.close();
             int code = c.getResponseCode(); String body = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream());
-            if (code < 200 || code >= 300) throw new IllegalStateException(body);
+            if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + body);
             return new JSONObject(body).optString("name", filename);
         } finally { c.disconnect(); }
     }
     private void part(OutputStream out, String b, String n, String v) throws Exception { out.write(("--" + b + "\r\nContent-Disposition: form-data; name=\"" + n + "\"\r\n\r\n" + v + "\r\n").getBytes("UTF-8")); }
     private void filePart(OutputStream out, String b, String n, String fn, String mt, byte[] bytes) throws Exception { out.write(("--" + b + "\r\nContent-Disposition: form-data; name=\"" + n + "\"; filename=\"" + fn + "\"\r\nContent-Type: " + mt + "\r\n\r\n").getBytes("UTF-8")); out.write(bytes); out.write("\r\n".getBytes("UTF-8")); }
-    private String postJson(String url, String body) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setDoOutput(true); c.setRequestMethod("POST"); c.setRequestProperty("Content-Type", "application/json; charset=utf-8"); OutputStream out = c.getOutputStream(); out.write(body.getBytes("UTF-8")); out.close(); int code = c.getResponseCode(); String r = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream()); if (code < 200 || code >= 300) throw new IllegalStateException(r); return r; } finally { c.disconnect(); } }
-    private String getText(String url) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(8000); c.setReadTimeout(20000); int code = c.getResponseCode(); String r = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream()); if (code < 200 || code >= 300) throw new IllegalStateException(r); return r; } finally { c.disconnect(); } }
+    private String postJson(String url, String body) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(10000); c.setReadTimeout(30000); c.setDoOutput(true); c.setRequestMethod("POST"); c.setRequestProperty("Content-Type", "application/json; charset=utf-8"); OutputStream out = c.getOutputStream(); out.write(body.getBytes("UTF-8")); out.close(); int code = c.getResponseCode(); String r = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream()); if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + r); return r; } finally { c.disconnect(); } }
+    private String getText(String url) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(8000); c.setReadTimeout(20000); int code = c.getResponseCode(); String r = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream()); if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + r); return r; } finally { c.disconnect(); } }
     private String readStream(InputStream in) throws Exception { if (in == null) return ""; try { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); return out.toString("UTF-8"); } finally { in.close(); } }
-    private byte[] readBytes(Uri uri) throws Exception { InputStream in = getContentResolver().openInputStream(uri); if (in == null) throw new IllegalStateException(); try { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); return out.toByteArray(); } finally { in.close(); } }
+    private byte[] readBytes(Uri uri) throws Exception { InputStream in = getContentResolver().openInputStream(uri); if (in == null) throw new IllegalStateException("Could not read selected file"); try { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); return out.toByteArray(); } finally { in.close(); } }
     private String readText(Uri uri) throws Exception { return new String(readBytes(uri), "UTF-8"); }
     private String displayName(Uri uri) { String r = null; Cursor c = null; try { c = getContentResolver().query(uri, null, null, null, null); if (c != null && c.moveToFirst()) { int i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME); if (i >= 0) r = c.getString(i); } } catch (Exception ignored) {} finally { if (c != null) c.close(); } if (r == null || r.trim().isEmpty()) r = "comfy_remote_image.png"; return r.replaceAll("[^A-Za-z0-9._-]", "_"); }
 
@@ -781,11 +871,12 @@ public class MainActivity extends Activity {
     private LinearLayout cardAccent() { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(14), dp(14), dp(14), dp(14)); c.setBackground(bgStroke(Color.rgb(24, 41, 65), dp(22), Color.rgb(96, 165, 250), 2)); return c; }
     private LinearLayout.LayoutParams cardParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(16)); return p; }
     private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(3), 0, dp(3), 0); return p; }
-    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextSize(size); v.setTextColor(color); v.setPadding(dp(2), 0, dp(2), dp(8)); return v; }
-    private TextView header(String t) { return text(t, 20, Color.WHITE); }
-    private TextView label(String t) { TextView v = text(t, 17, Color.rgb(226, 232, 240)); v.setPadding(dp(2), dp(8), dp(2), dp(6)); return v; }
+    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextSize(size); v.setTextColor(color); v.setPadding(dp(2), 0, dp(2), dp(8)); applySoftFont(v, size); return v; }
+    private TextView header(String t) { return text(t, 19, Color.WHITE); }
+    private TextView label(String t) { TextView v = text(t, 16, Color.rgb(226, 232, 240)); v.setPadding(dp(2), dp(8), dp(2), dp(6)); return v; }
     private TextView muted(String t) { return text(t, 14, Color.rgb(148, 163, 184)); }
-    private Button button(String t, int color, int size, int radius) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(false); b.setTextColor(Color.WHITE); b.setTextSize(size); b.setIncludeFontPadding(false); b.setGravity(Gravity.CENTER); b.setPadding(dp(6), 0, dp(6), 0); b.setBackground(bgStroke(color, dp(radius), Color.rgb(71, 85, 105), 1)); return b; }
+    private Button button(String t, int color, int size, int radius) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(false); b.setTextColor(Color.WHITE); b.setTextSize(size); b.setIncludeFontPadding(false); b.setGravity(Gravity.CENTER); b.setPadding(dp(6), 0, dp(6), 0); b.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL)); b.setBackground(bgStroke(color, dp(radius), Color.rgb(71, 85, 105), 1)); return b; }
+    private void applySoftFont(TextView v, int size) { v.setTextSize(size); v.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL)); v.setIncludeFontPadding(true); if (android.os.Build.VERSION.SDK_INT >= 21) v.setLetterSpacing(0.01f); }
     private GradientDrawable bgStroke(int color, int radius, int strokeColor, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(radius); d.setStroke(dp(strokeDp), strokeColor); return d; }
     private void busy(boolean on, String msg) { progress.setVisibility(on ? View.VISIBLE : View.GONE); status.setText(msg); }
     private void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_SHORT).show(); }
