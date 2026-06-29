@@ -696,12 +696,15 @@ public class MainActivity extends Activity {
     }
 
     private void updateScrollIndicator() {
-        if (nativePane == null || scrollTrack == null || scrollThumb == null) return;
+        if (nativePane == null || workspace == null || scrollTrack == null || scrollThumb == null) return;
         if (nativePane.getVisibility() != View.VISIBLE) { setScrollIndicatorVisible(false); return; }
-        int range = nativePane.computeVerticalScrollRange();
-        int extent = nativePane.computeVerticalScrollExtent();
-        int offset = nativePane.computeVerticalScrollOffset();
-        if (range <= extent + 4) { setScrollIndicatorVisible(false); return; }
+        int extent = nativePane.getHeight();
+        int range = extent;
+        if (nativePane.getChildCount() > 0 && nativePane.getChildAt(0) != null) {
+            range = nativePane.getChildAt(0).getHeight();
+        }
+        int offset = nativePane.getScrollY();
+        if (range <= extent + dp(8)) { setScrollIndicatorVisible(false); return; }
         setScrollIndicatorVisible(true);
         int trackHeight = Math.max(1, workspace.getHeight() - dp(20));
         int thumbHeight = Math.max(dp(48), Math.min(trackHeight, trackHeight * extent / Math.max(range, 1)));
