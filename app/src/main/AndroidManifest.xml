@@ -8,7 +8,7 @@
         android:resizeableActivity="true"
         android:hardwareAccelerated="true">
         <activity
-            android:name=".DirectNodeActivity"
+            android:name=".PolishedNodeActivity"
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>
