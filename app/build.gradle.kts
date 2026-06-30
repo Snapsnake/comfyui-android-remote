@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 17
-        versionName = "0.8.8-focused-categories"
+        versionCode = 18
+        versionName = "0.8.9-direct-node-picker"
     }
 }
