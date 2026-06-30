@@ -10,7 +10,7 @@
         android:resizeableActivity="true"
         android:hardwareAccelerated="true">
         <activity
-            android:name=".StudioActivity"
+            android:name=".FocusedStudioActivity"
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>
