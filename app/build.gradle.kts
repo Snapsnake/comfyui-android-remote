@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 16
-        versionName = "0.8.7-studio-tabs"
+        versionCode = 17
+        versionName = "0.8.8-focused-categories"
     }
 }
