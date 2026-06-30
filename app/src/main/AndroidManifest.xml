@@ -1,8 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-
     <uses-permission android:name="android.permission.INTERNET" />
-
     <application
         android:theme="@style/AppTheme"
         android:label="ComfyUI Remote"
@@ -10,7 +8,7 @@
         android:resizeableActivity="true"
         android:hardwareAccelerated="true">
         <activity
-            android:name=".FocusedStudioActivity"
+            android:name=".DirectNodeActivity"
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>
@@ -19,5 +17,4 @@
             </intent-filter>
         </activity>
     </application>
-
 </manifest>
