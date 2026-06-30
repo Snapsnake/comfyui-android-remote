@@ -242,7 +242,7 @@ public class MainActivity extends Activity {
         fields.clear();
         content.removeAllViews();
         content.addView(text("Params", 26, Color.WHITE));
-        content.addView(muted("Tap a node tile, edit its fields, then Run. Field names are highlighted; dropdown fields show ▾."));
+        content.addView(muted("Every node stays visible. Tiles show editable fields: ✎ count and ▾ dropdown count."));
         if (workflow == null) {
             sourceCard();
             LinearLayout c = card();
@@ -281,45 +281,52 @@ public class MainActivity extends Activity {
     private void importedSummaryCard() {
         LinearLayout c = cardAccent(); content.addView(c, cardParams());
         c.addView(header("Workflow imported"));
-        c.addView(muted(workflow.length() + " runnable nodes loaded. The node grid keeps every node visible without one panel per node."));
+        c.addView(muted(workflow.length() + " runnable nodes loaded. Select a tile with ✎ fields to edit; passthrough nodes can jump to linked sources."));
     }
 
     private void nodeTilesCard() {
         List<String> ids = visibleNodeIds();
-        if (ids.isEmpty()) { LinearLayout c = card(); c.addView(header("No editable nodes")); content.addView(c, cardParams()); return; }
-        if (selectedNodeId == null || !ids.contains(selectedNodeId)) selectedNodeId = ids.get(0);
+        if (ids.isEmpty()) { LinearLayout c = card(); c.addView(header("No nodes")); content.addView(c, cardParams()); return; }
+        if (selectedNodeId == null || !ids.contains(selectedNodeId)) selectedNodeId = firstEditableNodeId(ids);
         LinearLayout c = card(); content.addView(c, cardParams());
         c.addView(header("Nodes"));
-        c.addView(muted("All workflow nodes as compact tiles. Tap a tile to open its settings below."));
+        c.addView(muted("All nodes are here. The blue tile is open below; ✎0 means the node has no local widget field."));
+        LinearLayout actions = row(); c.addView(actions);
+        addCardButton(actions, "First editable", false, () -> { applyFields(); saveWorkflow(); selectedNodeId = firstEditableNodeId(ids); renderNative(); });
+        addCardButton(actions, "Next editable", true, () -> { applyFields(); saveWorkflow(); selectedNodeId = nextEditableNodeId(ids, selectedNodeId); renderNative(); });
         LinearLayout r = null;
         for (int i = 0; i < ids.size(); i++) {
             if (i % 2 == 0) { r = row(); r.setPadding(0, dp(6), 0, 0); c.addView(r); }
             addNodeTile(r, ids.get(i));
         }
-        if (ids.size() % 2 == 1 && r != null) r.addView(new View(this), weight(dp(68)));
+        if (ids.size() % 2 == 1 && r != null) r.addView(new View(this), weight(dp(86)));
     }
 
     private void addNodeTile(LinearLayout parent, String id) {
         JSONObject node = workflow.optJSONObject(id); if (node == null) return;
+        JSONObject inputs = node.optJSONObject("inputs");
         String cls = node.optString("class_type", "Node");
+        int edit = editableCount(id, inputs);
+        int dd = dropdownCount(id, inputs);
         boolean selected = id.equals(selectedNodeId);
-        Button b = button("#" + id + "\n" + shorten(prettify(cls), 26), selected ? Color.rgb(37, 99, 235) : Color.rgb(15, 23, 42), 13, 14);
+        int color = selected ? Color.rgb(37, 99, 235) : (edit > 0 ? Color.rgb(15, 23, 42) : Color.rgb(17, 24, 39));
+        Button b = button("#" + id + "\n" + shorten(prettify(cls), 24) + "\n✎ " + edit + "   ▾ " + dd, color, 12, 14);
         b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
         b.setPadding(dp(10), 0, dp(8), 0);
         b.setOnClickListener(v -> { applyFields(); saveWorkflow(); selectedNodeId = id; renderNative(); });
-        parent.addView(b, weight(dp(68)));
+        parent.addView(b, weight(dp(86)));
     }
 
     private void selectedNodeCard() {
         if (selectedNodeId == null || workflow == null) return;
         JSONObject node = workflow.optJSONObject(selectedNodeId); if (node == null) return;
-        JSONObject inputs = node.optJSONObject("inputs"); if (inputs == null) return;
+        JSONObject inputs = node.optJSONObject("inputs");
         String cls = node.optString("class_type", "Node");
         LinearLayout c = card(); content.addView(c, cardParams());
         c.addView(header("#" + selectedNodeId + "  " + prettify(cls)));
-        c.addView(muted("Node settings. The highlighted row name is the real input key, so custom node fields are easier to scan."));
+        c.addView(muted("Editable rows are below. If this node has no local fields, use linked-source buttons to jump to the real input node."));
         boolean added = false;
-        if (isLoadImage(cls)) { addImageControl(c, selectedNodeId, cls, inputs); added = true; }
+        if (isLoadImage(cls) && inputs != null) { addImageControl(c, selectedNodeId, cls, inputs); added = true; }
         if (isOutput(cls)) { Button preview = button("Preview latest output", Color.rgb(51, 65, 85), 15, 14); preview.setOnClickListener(v -> openOutput()); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52)); p.setMargins(0, 0, 0, dp(10)); c.addView(preview, p); added = true; }
         for (String key : inputKeys(inputs)) {
             Object value = inputs.opt(key);
@@ -328,7 +335,27 @@ public class MainActivity extends Activity {
             addField(c, selectedNodeId, key, value, fieldTitle(key));
             added = true;
         }
-        if (!added) c.addView(muted("No directly editable fields in this node."));
+        boolean linked = addLinkedInputs(c, inputs);
+        if (!added && !linked) c.addView(muted("No direct fields and no linked inputs in this node."));
+    }
+
+    private boolean addLinkedInputs(LinearLayout c, JSONObject inputs) {
+        if (inputs == null) return false;
+        boolean linked = false;
+        for (String key : inputKeys(inputs)) {
+            JSONArray link = inputs.optJSONArray(key);
+            if (link == null || link.length() == 0) continue;
+            String ref = link.optString(0, "");
+            if (ref.isEmpty() || workflow == null || !workflow.has(ref)) continue;
+            JSONObject src = workflow.optJSONObject(ref);
+            String cls = src == null ? "Node" : src.optString("class_type", "Node");
+            if (!linked) { c.addView(fieldLabel("Linked inputs")); linked = true; }
+            Button jump = button(key + "  ←  #" + ref + " " + shorten(prettify(cls), 34), Color.rgb(51, 65, 85), 14, 14);
+            jump.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); jump.setPadding(dp(14), 0, dp(14), 0);
+            jump.setOnClickListener(v -> { applyFields(); saveWorkflow(); selectedNodeId = ref; renderNative(); });
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(52)); p.setMargins(0, 0, 0, dp(10)); c.addView(jump, p);
+        }
+        return linked;
     }
 
     private void addImageControl(LinearLayout c, String id, String cls, JSONObject inputs) {
@@ -357,7 +384,7 @@ public class MainActivity extends Activity {
 
     private void addField(LinearLayout c, String id, String key, Object value, String title) {
         c.addView(fieldLabel(title));
-        JSONArray opts = optionValues(id, key);
+        JSONArray opts = optionValues(id, key, value);
         if (opts != null && opts.length() > 0) {
             Button b = button(String.valueOf(value) + "  ▾", Color.rgb(15, 23, 42), 16, 14);
             b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); b.setPadding(dp(14), 0, dp(14), 0); b.setOnClickListener(v -> showOptionsPicker(id, key, opts));
@@ -466,10 +493,7 @@ public class MainActivity extends Activity {
         return out;
     }
 
-    private boolean isNonRunnable(String cls) {
-        String s = cls == null ? "" : cls.toLowerCase();
-        return s.contains("note") || s.contains("markdown") || s.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
-    }
+    private boolean isNonRunnable(String cls) { String s = cls == null ? "" : cls.toLowerCase(); return s.contains("note") || s.contains("markdown") || s.matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"); }
     private boolean isReroute(String cls) { String s = cls == null ? "" : cls.toLowerCase(); return s.contains("reroute"); }
 
     private String workflowProblem(JSONObject wf) {
@@ -517,10 +541,15 @@ public class MainActivity extends Activity {
     private String enc(String s) throws Exception { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); }
     private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
     private List<String> nodeIds() { List<String> k = new ArrayList<>(); if (workflow == null) return k; Iterator<String> it = workflow.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k, (a,b)->{ try { return Integer.compare(Integer.parseInt(a), Integer.parseInt(b)); } catch(Exception e){ return a.compareTo(b); }}); return k; }
-    private List<String> visibleNodeIds() { List<String> ids = new ArrayList<>(); for (String id : nodeIds()) { JSONObject node = workflow.optJSONObject(id); if (node == null) continue; JSONObject inputs = node.optJSONObject("inputs"); if (inputs == null) continue; String cls = node.optString("class_type", "Node"); if (!isNonRunnable(cls) && !isReroute(cls)) ids.add(id); } return ids; }
-    private List<String> inputKeys(JSONObject o) { List<String> k = new ArrayList<>(); Iterator<String> it = o.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k); return k; }
-    private JSONArray optionValues(String node, String key) { JSONArray saved = fieldOptions == null ? null : fieldOptions.optJSONArray(node + ":" + key); return saved != null && saved.length() > 0 ? saved : commonOptions(key); }
+    private List<String> visibleNodeIds() { List<String> ids = new ArrayList<>(); for (String id : nodeIds()) { JSONObject node = workflow.optJSONObject(id); if (node == null) continue; String cls = node.optString("class_type", "Node"); if (!isNonRunnable(cls) && !isReroute(cls)) ids.add(id); } return ids; }
+    private List<String> inputKeys(JSONObject o) { List<String> k = new ArrayList<>(); if (o == null) return k; Iterator<String> it = o.keys(); while (it.hasNext()) k.add(it.next()); Collections.sort(k); return k; }
+    private JSONArray optionValues(String node, String key, Object value) { JSONArray saved = fieldOptions == null ? null : fieldOptions.optJSONArray(node + ":" + key); if (saved != null && saved.length() > 0) return saved; if (value instanceof Boolean) return trueFalseOptions(); return commonOptions(key); }
+    private JSONArray trueFalseOptions() { try { return new JSONArray("[\"true\",\"false\"]"); } catch (JSONException e) { return null; } }
     private JSONArray commonOptions(String key) { String k = key == null ? "" : key.toLowerCase(); try { if (k.equals("sampler_name") || k.equals("sampler")) return new JSONArray("[\"euler\",\"euler_ancestral\",\"heun\",\"dpm_2\",\"dpm_2_ancestral\",\"lms\",\"dpm_fast\",\"dpm_adaptive\",\"dpmpp_2s_ancestral\",\"dpmpp_sde\",\"dpmpp_2m\",\"ddim\",\"uni_pc\"]"); if (k.equals("scheduler")) return new JSONArray("[\"normal\",\"karras\",\"exponential\",\"sgm_uniform\",\"simple\",\"ddim_uniform\",\"beta\"]"); } catch (JSONException ignored) {} return null; }
+    private int editableCount(String id, JSONObject inputs) { int n = 0; for (String k : inputKeys(inputs)) if (primitive(inputs.opt(k))) n++; return n; }
+    private int dropdownCount(String id, JSONObject inputs) { int n = 0; for (String k : inputKeys(inputs)) { Object v = inputs.opt(k); if (primitive(v) && optionValues(id, k, v) != null) n++; } return n; }
+    private String firstEditableNodeId(List<String> ids) { for (String id : ids) { JSONObject node = workflow.optJSONObject(id); JSONObject inputs = node == null ? null : node.optJSONObject("inputs"); if (editableCount(id, inputs) > 0) return id; } return ids.isEmpty() ? null : ids.get(0); }
+    private String nextEditableNodeId(List<String> ids, String cur) { if (ids.isEmpty()) return null; int start = Math.max(0, ids.indexOf(cur)); for (int step = 1; step <= ids.size(); step++) { String id = ids.get((start + step) % ids.size()); JSONObject node = workflow.optJSONObject(id); JSONObject inputs = node == null ? null : node.optJSONObject("inputs"); if (editableCount(id, inputs) > 0) return id; } return firstEditableNodeId(ids); }
     private boolean numericKey(String k) { String s = k.toLowerCase(); return s.contains("width") || s.contains("height") || s.contains("step") || s.contains("seed") || s.contains("cfg") || s.contains("duration") || s.contains("batch") || s.contains("fps") || s.contains("frame") || s.equals("denoise") || s.equals("length"); }
     private boolean isLoadImage(String c) { String s = c == null ? "" : c.toLowerCase(); return s.contains("loadimage") || s.contains("load image"); }
     private boolean isOutput(String c) { String s = c == null ? "" : c.toLowerCase(); return s.contains("saveimage") || s.contains("save image") || s.contains("savevideo") || s.contains("save video") || s.contains("previewimage") || s.contains("preview image"); }
