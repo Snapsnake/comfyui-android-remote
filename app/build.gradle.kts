@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 14
-        versionName = "0.8.5-editable-node-tiles"
+        versionCode = 15
+        versionName = "0.8.6-controls-first"
     }
 }
