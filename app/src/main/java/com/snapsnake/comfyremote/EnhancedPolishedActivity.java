@@ -1,7 +1,11 @@
 package com.snapsnake.comfyremote;
 
 import android.app.Activity;
+import android.app.DownloadManager;
+import android.content.Context;
+import android.net.Uri;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
@@ -42,6 +46,7 @@ public class EnhancedPolishedActivity extends PolishedNodeActivity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private EditText nodeSearch;
     private LinearLayout nodeList;
+    private LinearLayout outputList;
     private String currentQuery = "";
 
     private static class OutItem {
@@ -175,13 +180,16 @@ public class EnhancedPolishedActivity extends PolishedNodeActivity {
         LinearLayout content = content();
         content.removeAllViews();
         content.addView(title("Recent outputs"));
-        content.addView(muted("Latest videos/images from ComfyUI history. Tap any item to open it."));
+        content.addView(muted("Latest videos/images from ComfyUI history. Open or download any item to your phone."));
         LinearLayout tools = card(false);
         content.addView(tools, cardParams());
         LinearLayout r = row();
         tools.addView(r);
         addAction(r, "Refresh", true, this::loadRecentOutputs);
         addAction(r, "Open latest", false, () -> callQuiet("openOutput"));
+        outputList = new LinearLayout(this);
+        outputList.setOrientation(LinearLayout.VERTICAL);
+        content.addView(outputList, new LinearLayout.LayoutParams(-1, -2));
         loadRecentOutputs();
     }
 
@@ -229,20 +237,85 @@ public class EnhancedPolishedActivity extends PolishedNodeActivity {
     }
 
     private void renderOutputs(String base, ArrayList<OutItem> items) {
-        LinearLayout content = content();
-        if (items.isEmpty()) { content.addView(muted("No recent outputs found.")); return; }
+        LinearLayout list = outputList == null ? content() : outputList;
+        list.removeAllViews();
+        if (items.isEmpty()) { list.addView(muted("No recent outputs found.")); return; }
+
+        OutItem latestVideo = null;
+        for (OutItem item : items) {
+            if (isVideoLike(item)) { latestVideo = item; break; }
+        }
+        if (latestVideo != null) {
+            LinearLayout quick = card(false);
+            list.addView(quick, cardParams());
+            quick.addView(title("Latest video"));
+            quick.addView(muted(latestVideo.filename));
+            LinearLayout qr = row();
+            quick.addView(qr);
+            OutItem finalLatestVideo = latestVideo;
+            addAction(qr, "Open", true, () -> openOutputUrl(outputUrl(base, finalLatestVideo)));
+            addAction(qr, "Download", false, () -> downloadOutput(base, finalLatestVideo));
+        }
+
         int limit = Math.min(30, items.size());
         for (int i = 0; i < limit; i++) {
             OutItem item = items.get(i);
             LinearLayout card = card(false);
-            content.addView(card, cardParams());
+            list.addView(card, cardParams());
             card.addView(title((item.kind.equals("video") ? "Video" : item.kind.equals("gif") ? "GIF" : "Image") + " · " + item.filename));
             card.addView(muted("folder: " + (item.subfolder.isEmpty() ? item.type : item.type + "/" + item.subfolder)));
-            Button open = largeButton("Open", rgb(37, 99, 235));
-            open.setOnClickListener(v -> openOutputUrl(outputUrl(base, item)));
-            card.addView(open, new LinearLayout.LayoutParams(-1, dp(54)));
+            LinearLayout actions = row();
+            card.addView(actions);
+            addAction(actions, "Open", true, () -> openOutputUrl(outputUrl(base, item)));
+            addAction(actions, "Download", false, () -> downloadOutput(base, item));
         }
         setStatus("Loaded " + limit + " recent outputs.");
+    }
+
+    private void downloadOutput(String base, OutItem item) {
+        try {
+            String url = outputUrl(base, item);
+            String name = safeFilename(item.filename);
+            DownloadManager.Request request = new DownloadManager.Request(Uri.parse(url));
+            request.setTitle(name);
+            request.setDescription("ComfyUI output");
+            request.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            request.setAllowedOverMetered(true);
+            request.setAllowedOverRoaming(true);
+            request.setMimeType(mimeType(item));
+            request.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+            DownloadManager manager = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+            if (manager == null) throw new IllegalStateException("DownloadManager unavailable");
+            manager.enqueue(request);
+            Toast.makeText(this, "Download started: " + name, Toast.LENGTH_LONG).show();
+            setStatus("Downloading to Downloads: " + name);
+        } catch (Exception e) {
+            setStatus("Download failed: " + shortErr(e));
+            Toast.makeText(this, "Download failed: " + shortErr(e), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private boolean isVideoLike(OutItem item) {
+        String f = item.filename == null ? "" : item.filename.toLowerCase();
+        return "video".equals(item.kind) || "gif".equals(item.kind) || f.endsWith(".mp4") || f.endsWith(".webm") || f.endsWith(".mov") || f.endsWith(".gif");
+    }
+
+    private String mimeType(OutItem item) {
+        String f = item.filename == null ? "" : item.filename.toLowerCase();
+        if (f.endsWith(".mp4")) return "video/mp4";
+        if (f.endsWith(".webm")) return "video/webm";
+        if (f.endsWith(".mov")) return "video/quicktime";
+        if (f.endsWith(".gif")) return "image/gif";
+        if (f.endsWith(".jpg") || f.endsWith(".jpeg")) return "image/jpeg";
+        if (f.endsWith(".webp")) return "image/webp";
+        if (f.endsWith(".png")) return "image/png";
+        return isVideoLike(item) ? "video/mp4" : "application/octet-stream";
+    }
+
+    private String safeFilename(String name) {
+        if (name == null || name.trim().isEmpty()) name = "comfyui_output";
+        String clean = name.replaceAll("[^A-Za-z0-9._-]", "_");
+        return clean.isEmpty() ? "comfyui_output" : clean;
     }
 
     private void openOutputUrl(String url) {
