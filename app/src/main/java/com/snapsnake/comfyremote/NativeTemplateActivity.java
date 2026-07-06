@@ -13,12 +13,10 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.WebView;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -47,25 +45,11 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
     private EditText templateSearch;
     private String query = "";
 
-    private static class TemplateItem {
-        String source, name, title, desc, subtype, category;
-    }
+    private static class TemplateItem { String source, name, title, desc, subtype, category; }
+    private static class LinkRef { String node; int slot; LinkRef(String node, int slot) { this.node = node; this.slot = slot; } }
 
-    private static class LinkRef {
-        String node;
-        int slot;
-        LinkRef(String node, int slot) { this.node = node; this.slot = slot; }
-    }
-
-    @Override protected void onCreate(Bundle state) {
-        super.onCreate(state);
-        overrideTemplateButtons((View) getWindow().getDecorView());
-    }
-
-    @Override public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) overrideTemplateButtons((View) getWindow().getDecorView());
-    }
+    @Override protected void onCreate(Bundle state) { super.onCreate(state); overrideTemplateButtons((View) getWindow().getDecorView()); }
+    @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) overrideTemplateButtons((View) getWindow().getDecorView()); }
 
     private void overrideTemplateButtons(View v) {
         if (v instanceof Button) {
@@ -99,7 +83,6 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
             content.removeAllViews();
             content.addView(title("Templates"));
             content.addView(muted("Native ComfyUI templates with the same previews. Tap a card to load it into Nodes/Create."));
-
             LinearLayout tools = card(false);
             content.addView(tools, cardParams());
             templateSearch = new EditText(this);
@@ -121,20 +104,18 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                 public void onTextChanged(CharSequence s, int st, int b, int c) { query = String.valueOf(s); renderTemplateList(); }
                 public void afterTextChanged(Editable e) {}
             });
-
             templateList = new LinearLayout(this);
             templateList.setOrientation(LinearLayout.VERTICAL);
             content.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
             setStatus("Templates screen. Loading from ComfyUI API...");
             if (templates.isEmpty()) loadTemplates(); else renderTemplateList();
             callBaseQuiet("applyBars");
-        } catch (Exception e) {
-            setStatus("Templates failed: " + shortErr(e));
-        }
+        } catch (Exception e) { setStatus("Templates failed: " + shortErr(e)); }
     }
 
     private void loadTemplates() {
         final String base = baseUrl();
+        if (base.isEmpty()) { setStatus("Enter ComfyUI URL first."); return; }
         setStatus("Loading /templates/index.json and /api/workflow_templates...");
         new Thread(() -> {
             ArrayList<TemplateItem> loaded = new ArrayList<>();
@@ -161,9 +142,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                         if (!item.name.isEmpty()) loaded.add(item);
                     }
                 }
-            } catch (Exception e) {
-                warning = "Core templates failed: " + shortErr(e);
-            }
+            } catch (Exception e) { warning = "Core templates failed: " + shortErr(e); }
             try {
                 JSONObject custom = new JSONObject(getText(base + "/api/workflow_templates"));
                 Iterator<String> it = custom.keys();
@@ -184,9 +163,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                         loaded.add(item);
                     }
                 }
-            } catch (Exception e) {
-                if (warning == null) warning = "Custom templates failed: " + shortErr(e);
-            }
+            } catch (Exception e) { if (warning == null) warning = "Custom templates failed: " + shortErr(e); }
             final String warn = warning;
             ui.post(() -> {
                 templates.clear();
@@ -235,17 +212,16 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
         setStatus("Loading template: " + item.title);
         new Thread(() -> {
             try {
+                JSONObject defs = new JSONObject(getText(base + "/api/object_info"));
                 JSONObject graph = new JSONObject(getText(templateJsonUrl(base, item)));
-                JSONObject prompt = looksApiPrompt(graph) ? graph : graphToPrompt(graph, new JSONObject(getText(base + "/api/object_info")));
+                JSONObject prompt = looksApiPrompt(graph) ? graph : graphToPrompt(graph, defs);
                 JSONObject res = new JSONObject();
                 res.put("ok", true);
                 res.put("prompt", prompt);
-                res.put("options", buildOptions(prompt, new JSONObject(getText(base + "/api/object_info"))));
+                res.put("options", buildOptions(prompt, defs));
                 res.put("mode", "Templates");
                 ui.post(() -> importPrompt(res.toString()));
-            } catch (Exception e) {
-                ui.post(() -> setStatus("Template load failed: " + shortErr(e)));
-            }
+            } catch (Exception e) { ui.post(() -> setStatus("Template load failed: " + shortErr(e))); }
         }).start();
     }
 
@@ -274,8 +250,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                     String name = inp.optString("name", "");
                     Object linkObj = inp.opt("link");
                     if (name.isEmpty() || linkObj == null || linkObj == JSONObject.NULL) continue;
-                    String linkId = String.valueOf(linkObj);
-                    LinkRef ref = links.get(linkId);
+                    LinkRef ref = links.get(String.valueOf(linkObj));
                     if (ref != null && ref.node != null && !ref.node.isEmpty()) {
                         JSONArray a = new JSONArray();
                         a.put(ref.node);
@@ -285,11 +260,11 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                     }
                 }
             }
-            ArrayList<String> widgetNames = widgetNames(n, cls, defs, linkedNames);
+            ArrayList<String> names = widgetNames(n, cls, defs, linkedNames);
             JSONArray vals = n.optJSONArray("widgets_values");
             if (vals != null) {
-                for (int w = 0; w < vals.length() && w < widgetNames.size(); w++) {
-                    String key = widgetNames.get(w);
+                for (int w = 0; w < vals.length() && w < names.size(); w++) {
+                    String key = names.get(w);
                     if (key == null || key.isEmpty() || inputs.has(key)) continue;
                     inputs.put(key, vals.opt(w));
                 }
@@ -378,8 +353,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
             String key = it.next();
             Object raw = section.opt(key);
             if (!(raw instanceof JSONArray)) continue;
-            JSONArray spec = (JSONArray) raw;
-            Object first = spec.opt(0);
+            Object first = ((JSONArray) raw).opt(0);
             if (first instanceof JSONArray) out.put(id + ":" + key, first);
         }
     }
@@ -393,29 +367,16 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
         return false;
     }
 
-    private boolean nonRunnable(String cls) {
-        String s = cls == null ? "" : cls.toLowerCase();
-        return s.contains("note") || s.contains("markdown") || s.contains("reroute");
-    }
-
-    private String templateJsonUrl(String base, TemplateItem item) {
-        if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + ".json";
-        return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json";
-    }
-
-    private String thumbUrl(String base, TemplateItem item, boolean fallback) {
-        String ext = item.subtype == null || item.subtype.isEmpty() ? "webp" : item.subtype;
-        if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext;
-        return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext;
-    }
+    private boolean nonRunnable(String cls) { String s = cls == null ? "" : cls.toLowerCase(); return s.contains("note") || s.contains("markdown") || s.contains("reroute"); }
+    private String templateJsonUrl(String base, TemplateItem item) { return "default".equals(item.source) ? base + "/templates/" + path(item.name) + ".json" : base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json"; }
+    private String thumbUrl(String base, TemplateItem item, boolean fallback) { String ext = item.subtype == null || item.subtype.isEmpty() ? "webp" : item.subtype; return "default".equals(item.source) ? base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext : base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
 
     private void loadThumb(ImageView img, TemplateItem item) {
         final String base = baseUrl();
         new Thread(() -> {
             try {
                 byte[] data;
-                try { data = bytes(thumbUrl(base, item, false)); }
-                catch (Exception e) { data = bytes(thumbUrl(base, item, true)); }
+                try { data = bytes(thumbUrl(base, item, false)); } catch (Exception e) { data = bytes(thumbUrl(base, item, true)); }
                 Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
                 if (bmp != null) ui.post(() -> img.setImageBitmap(bmp));
             } catch (Exception ignored) {}
@@ -423,12 +384,10 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
     }
 
     private String getText(String url) throws Exception { return new String(bytes(url), "UTF-8"); }
-
     private byte[] bytes(String url) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(30000);
+            c.setConnectTimeout(10000); c.setReadTimeout(30000);
             Map<String, String> h = accessHeaders();
             for (String k : h.keySet()) c.setRequestProperty(k, h.get(k));
             int code = c.getResponseCode();
@@ -449,30 +408,21 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
             m.setAccessible(true);
             m.invoke(this, resultJson);
             overrideTemplateButtons((View) getWindow().getDecorView());
-        } catch (Exception e) {
-            setStatus("Import failed: " + shortErr(e));
-        }
+        } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); }
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, String> accessHeaders() throws Exception {
-        Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders");
-        m.setAccessible(true);
-        return (Map<String, String>) m.invoke(this);
-    }
-
+    private Map<String, String> accessHeaders() throws Exception { Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders"); m.setAccessible(true); return (Map<String, String>) m.invoke(this); }
     private LinearLayout content() throws Exception { return (LinearLayout) baseField("content"); }
-    private String baseUrl() throws Exception { Object x = callBase("baseUrl"); return x == null ? "" : String.valueOf(x); }
+    private String baseUrl() { try { Object x = callBase("baseUrl"); return x == null ? "" : String.valueOf(x); } catch (Exception e) { return ""; } }
     private Object baseField(String name) throws Exception { Field f = PolishedNodeActivity.class.getDeclaredField(name); f.setAccessible(true); return f.get(this); }
     private Object callBase(String name) throws Exception { Method m = PolishedNodeActivity.class.getDeclaredMethod(name); m.setAccessible(true); return m.invoke(this); }
     private void callBaseQuiet(String name) { try { callBase(name); } catch (Exception ignored) {} }
-
     private String path(String s) { try { return URLEncoder.encode(s == null ? "" : s, "UTF-8").replace("+", "%20").replace("%2F", "/"); } catch (Exception e) { return s == null ? "" : s; } }
     private String shortText(String s, int max) { if (s == null) return ""; return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)) + "…"; }
     private String shortErr(Exception e) { String s = e.getMessage(); if (s == null || s.trim().isEmpty()) s = e.getClass().getSimpleName(); s = s.replace('\n', ' ').replace('\r', ' '); return s.length() > 220 ? s.substring(0, 220) + "…" : s; }
     private void setStatus(String text) { try { Object s = baseField("status"); if (s instanceof TextView) ((TextView) s).setText(text); } catch (Exception ignored) {} }
     private void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_SHORT).show(); }
-
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
     private LinearLayout row() { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setPadding(0, dp(8), 0, 0); return r; }
