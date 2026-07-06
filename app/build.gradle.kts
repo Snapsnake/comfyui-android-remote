@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 24
+        versionCode = 25
         versionName = "0.9.4-access-graph-login"
     }
 }
