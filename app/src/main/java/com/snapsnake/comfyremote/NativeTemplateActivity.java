@@ -3,8 +3,12 @@ package com.snapsnake.comfyremote;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Color;
+import android.graphics.ImageDecoder;
 import android.graphics.Typeface;
+import android.graphics.drawable.AnimatedImageDrawable;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -31,10 +35,12 @@ import java.lang.reflect.Method;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -82,7 +88,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
             LinearLayout content = content();
             content.removeAllViews();
             content.addView(title("Templates"));
-            content.addView(muted("Native ComfyUI templates with the same previews. Tap a card to load it into Nodes/Create."));
+            content.addView(muted("Native ComfyUI templates with previews. Animated WebP/GIF previews should play on Android 9+."));
             LinearLayout tools = card(false);
             content.addView(tools, cardParams());
             templateSearch = new EditText(this);
@@ -158,7 +164,7 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
                         item.name = name;
                         item.title = name;
                         item.desc = module;
-                        item.subtype = "jpg";
+                        item.subtype = "";
                         item.category = "Custom Nodes";
                         loaded.add(item);
                     }
@@ -369,18 +375,47 @@ public class NativeTemplateActivity extends EnhancedPolishedActivity {
 
     private boolean nonRunnable(String cls) { String s = cls == null ? "" : cls.toLowerCase(); return s.contains("note") || s.contains("markdown") || s.contains("reroute"); }
     private String templateJsonUrl(String base, TemplateItem item) { return "default".equals(item.source) ? base + "/templates/" + path(item.name) + ".json" : base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json"; }
-    private String thumbUrl(String base, TemplateItem item, boolean fallback) { String ext = item.subtype == null || item.subtype.isEmpty() ? "webp" : item.subtype; return "default".equals(item.source) ? base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext : base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
+    private String thumbUrl(String base, TemplateItem item, String ext, boolean fallback) { return "default".equals(item.source) ? base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext : base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
+
+    private ArrayList<String> previewExts(TemplateItem item) {
+        LinkedHashSet<String> exts = new LinkedHashSet<>();
+        String s = item.subtype == null ? "" : item.subtype.trim().toLowerCase();
+        if (!s.isEmpty()) exts.add(s);
+        exts.add("webp");
+        exts.add("gif");
+        exts.add("png");
+        exts.add("jpg");
+        exts.add("jpeg");
+        return new ArrayList<>(exts);
+    }
 
     private void loadThumb(ImageView img, TemplateItem item) {
         final String base = baseUrl();
         new Thread(() -> {
             try {
-                byte[] data;
-                try { data = bytes(thumbUrl(base, item, false)); } catch (Exception e) { data = bytes(thumbUrl(base, item, true)); }
-                Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
-                if (bmp != null) ui.post(() -> img.setImageBitmap(bmp));
+                byte[] data = null;
+                for (String ext : previewExts(item)) {
+                    try { data = bytes(thumbUrl(base, item, ext, false)); break; } catch (Exception ignored) {}
+                    try { data = bytes(thumbUrl(base, item, ext, true)); break; } catch (Exception ignored) {}
+                }
+                if (data != null) showPreview(img, data);
             } catch (Exception ignored) {}
         }).start();
+    }
+
+    private void showPreview(ImageView img, byte[] data) {
+        ui.post(() -> {
+            if (Build.VERSION.SDK_INT >= 28) {
+                try {
+                    Drawable d = ImageDecoder.decodeDrawable(ImageDecoder.createSource(ByteBuffer.wrap(data)));
+                    img.setImageDrawable(d);
+                    if (d instanceof AnimatedImageDrawable) ((AnimatedImageDrawable) d).start();
+                    return;
+                } catch (Exception ignored) {}
+            }
+            Bitmap bmp = BitmapFactory.decodeByteArray(data, 0, data.length);
+            if (bmp != null) img.setImageBitmap(bmp);
+        });
     }
 
     private String getText(String url) throws Exception { return new String(bytes(url), "UTF-8"); }
