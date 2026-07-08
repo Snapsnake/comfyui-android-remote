@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 27
-        versionName = "0.9.4-access-graph-login"
+        versionCode = 28
+        versionName = "0.9.5-template-cache-dark-ui"
     }
 }
