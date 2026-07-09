@@ -9,7 +9,7 @@
         android:resizeableActivity="true"
         android:hardwareAccelerated="true">
         <activity
-            android:name=".RescueComfyMobileActivity"
+            android:name=".ComfyNativeActivity"
             android:exported="true"
             android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>
