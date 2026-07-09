@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 33
-        versionName = "0.10.0-charcoal-card-ui"
+        versionCode = 34
+        versionName = "0.10.1-mockup-shell"
     }
 }
