@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.Editable;
+import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.util.Size;
 import android.view.Gravity;
@@ -23,7 +24,6 @@ import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-import android.widget.Toast;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -50,7 +50,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private static final String PREFS = "comfyui_template_cache";
     private static final String KEY_CARDS = "template_cards_v2";
     private static final String KEY_UPDATED_AT = "template_cards_updated_at";
-    private static final int PAGE_SIZE = 36;
+    private static final int PAGE_SIZE = 40;
     private static final int MAX_TEXT_BYTES = 12 * 1024 * 1024;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
@@ -73,9 +73,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         boolean valid = true;
         String error;
 
-        String id() {
-            return safe(source).trim() + "/" + safe(name).trim();
-        }
+        String id() { return safe(source).trim() + "/" + safe(name).trim(); }
 
         JSONObject toJson() throws JSONException {
             JSONObject o = new JSONObject();
@@ -102,7 +100,6 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             item.error = o.optString("error", "");
             return item;
         }
-
         private static String safe(String s) { return s == null ? "" : s; }
     }
 
@@ -121,7 +118,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         if (v instanceof Button) {
             Button b = (Button) v;
             String t = String.valueOf(b.getText()).trim();
-            if ("Graph".equalsIgnoreCase(t) || "Templates".equalsIgnoreCase(t) || "Open Graph".equalsIgnoreCase(t)) {
+            if ("Graph".equalsIgnoreCase(t) || "Templates".equalsIgnoreCase(t) || "Tpl".equalsIgnoreCase(t) || "Open Graph".equalsIgnoreCase(t)) {
                 b.setText("Templates");
                 b.setOnClickListener(x -> showTemplates());
             }
@@ -139,18 +136,21 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             View pane = (View) baseField("pane");
             View graph = (View) baseField("graph");
             View output = (View) baseField("output");
+            View bottom = null;
+            try { bottom = (View) baseField("bottomNav"); } catch (Exception ignored) {}
             if (top != null) top.setVisibility(View.GONE);
+            if (bottom != null) bottom.setVisibility(View.GONE);
             if (pane != null) {
                 pane.setVisibility(View.VISIBLE);
-                pane.setBackgroundColor(rgb(0, 0, 0));
+                pane.setBackgroundColor(Color.BLACK);
             }
             if (graph != null) graph.setVisibility(View.GONE);
             if (output != null) output.setVisibility(View.GONE);
 
             LinearLayout content = (LinearLayout) baseField("content");
             content.removeAllViews();
-            content.setBackgroundColor(rgb(0, 0, 0));
-            content.setPadding(dp(28), dp(18), dp(28), dp(96));
+            content.setBackgroundColor(Color.BLACK);
+            content.setPadding(dp(32), dp(18), dp(32), dp(36));
             content.addView(templateHeader());
             content.addView(searchPanel());
 
@@ -163,57 +163,69 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 if (templates.isEmpty() && !baseUrl().isEmpty()) loadTemplates();
             }
             renderTemplates();
-            setStatus(templates.isEmpty() ? "Templates cache is empty. Tap Refresh Templates." : "Templates loaded from local cache.");
+            setStatus(templates.isEmpty() ? "Templates cache is empty. Tap Refresh." : "Templates loaded from local cache.");
             callBaseQuiet("applyBars");
         } catch (Exception e) {
             setStatus("Templates failed: " + shortErr(e));
         }
     }
 
+    private void leaveTemplates() {
+        try {
+            View bottom = null;
+            try { bottom = (View) baseField("bottomNav"); } catch (Exception ignored) {}
+            if (bottom != null) bottom.setVisibility(View.VISIBLE);
+            callBase("showCreate");
+            hookTemplateButtons((View) getWindow().getDecorView());
+        } catch (Exception ignored) {}
+    }
+
     private View templateHeader() {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(0, 0, 0, dp(18));
+        head.setPadding(0, 0, 0, dp(28));
 
-        TextView back = text("‹", 36, rgb(226, 232, 240));
+        TextView back = text("‹", 34, rgb(226, 232, 240));
         back.setGravity(Gravity.CENTER);
-        back.setOnClickListener(v -> { try { callBase("showCreate"); } catch (Exception ignored) {} });
-        head.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        back.setOnClickListener(v -> leaveTemplates());
+        head.addView(back, new LinearLayout.LayoutParams(dp(42), dp(44)));
 
         TextView title = title("Templates");
-        title.setTextSize(28);
+        title.setTextSize(30);
         title.setGravity(Gravity.CENTER);
-        head.addView(title, new LinearLayout.LayoutParams(0, dp(48), 1));
+        head.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1));
 
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_launcher);
         logo.setPadding(dp(8), dp(8), dp(8), dp(8));
-        head.addView(logo, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        head.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
         return head;
     }
 
     private View searchPanel() {
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
-        tools.setPadding(0, 0, 0, dp(12));
+        tools.setPadding(0, 0, 0, dp(18));
 
         TextView label = text("Preloaded Templates", 20, rgb(163, 163, 173));
         label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        tools.addView(label);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
+        lp.setMargins(0, 0, 0, dp(12));
+        tools.addView(label, lp);
 
         LinearLayout searchBox = new LinearLayout(this);
         searchBox.setOrientation(LinearLayout.HORIZONTAL);
         searchBox.setGravity(Gravity.CENTER_VERTICAL);
-        searchBox.setPadding(dp(14), 0, dp(14), 0);
-        searchBox.setBackground(bg(rgb(3, 7, 18), 20, rgb(15, 23, 42), 1));
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(56));
-        sp.setMargins(0, dp(12), 0, dp(10));
+        searchBox.setPadding(dp(16), 0, dp(16), 0);
+        searchBox.setBackground(bg(rgb(1, 5, 14), 19, rgb(22, 31, 50), 1));
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(52));
+        sp.setMargins(0, 0, 0, dp(12));
         tools.addView(searchBox, sp);
 
-        TextView icon = text("⌕", 26, rgb(203, 213, 225));
+        TextView icon = text("⌕", 24, rgb(203, 213, 225));
         icon.setGravity(Gravity.CENTER);
-        searchBox.addView(icon, new LinearLayout.LayoutParams(dp(34), -1));
+        searchBox.addView(icon, new LinearLayout.LayoutParams(dp(36), -1));
 
         search = new EditText(this);
         search.setSingleLine(true);
@@ -226,14 +238,20 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         search.setBackgroundColor(Color.TRANSPARENT);
         searchBox.addView(search, new LinearLayout.LayoutParams(0, -1, 1));
 
-        LinearLayout actions = row();
-        actions.setPadding(0, 0, 0, dp(6));
-        tools.addView(actions);
-        action(actions, refreshing ? "Refreshing…" : "Refresh Templates", true, this::loadTemplates);
-        action(actions, "Clear", false, () -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); });
+        LinearLayout actions = new LinearLayout(this);
+        actions.setOrientation(LinearLayout.HORIZONTAL);
+        actions.setGravity(Gravity.CENTER_VERTICAL);
+        tools.addView(actions, new LinearLayout.LayoutParams(-1, dp(34)));
+        TextView refresh = link(refreshing ? "⟳ Refreshing…" : "⟳ Refresh templates");
+        refresh.setOnClickListener(v -> loadTemplates());
+        actions.addView(refresh, new LinearLayout.LayoutParams(0, -1, 1));
+        TextView clear = link("Clear");
+        clear.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        clear.setOnClickListener(v -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); });
+        actions.addView(clear, new LinearLayout.LayoutParams(dp(84), -1));
 
         TextView stamp = muted(lastUpdatedAt > 0 ? "Last refresh: " + timeAgo(lastUpdatedAt) : "Refresh once to cache templates and previews.");
-        stamp.setPadding(dp(2), 0, dp(2), dp(12));
+        stamp.setPadding(dp(2), 0, dp(2), dp(8));
         tools.addView(stamp);
 
         search.addTextChangedListener(new TextWatcher() {
@@ -271,11 +289,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         for (TemplateItem item : items) {
             try { arr.put(item.toJson()); } catch (Exception ignored) {}
         }
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit()
-                .putString(KEY_CARDS, arr.toString())
-                .putLong(KEY_UPDATED_AT, updatedAt)
-                .apply();
+        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_CARDS, arr.toString()).putLong(KEY_UPDATED_AT, updatedAt).apply();
     }
 
     private void loadTemplates() {
@@ -310,9 +324,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                         if (item.valid) loaded.add(item);
                     }
                 }
-            } catch (Exception e) {
-                warnings.add("default templates: " + shortErr(e));
-            }
+            } catch (Exception e) { warnings.add("default templates: " + shortErr(e)); }
             try {
                 JSONObject custom = new JSONObject(getText(base + "/api/workflow_templates"));
                 Iterator<String> it = custom.keys();
@@ -334,9 +346,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                         loaded.add(item);
                     }
                 }
-            } catch (Exception e) {
-                warnings.add("custom templates: " + shortErr(e));
-            }
+            } catch (Exception e) { warnings.add("custom templates: " + shortErr(e)); }
 
             long updatedAt = System.currentTimeMillis();
             String warning = joinWarnings(warnings);
@@ -363,8 +373,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         if (preloading || items == null || items.isEmpty()) return;
         preloading = true;
         new Thread(() -> {
-            int ok = 0;
-            int failed = 0;
+            int ok = 0, failed = 0;
             for (int i = 0; i < items.size(); i++) {
                 TemplateItem item = items.get(i);
                 if (item == null || !item.valid || safe(item.name).trim().isEmpty()) continue;
@@ -372,17 +381,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                     String raw = getText(templateJsonUrl(base, item));
                     writeText(rawTemplateFile(base, item), raw);
                     ok++;
-                } catch (Exception e) {
-                    failed++;
-                }
+                } catch (Exception e) { failed++; }
                 if (i % 10 == 0) {
-                    int done = i + 1;
-                    int count = ok;
+                    int done = i + 1, count = ok;
                     ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + "."));
                 }
             }
-            int finalOk = ok;
-            int finalFailed = failed;
+            int finalOk = ok, finalFailed = failed;
             ui.post(() -> {
                 preloading = false;
                 setStatus("Templates ready. Cached workflows: " + finalOk + (finalFailed > 0 ? ", failed: " + finalFailed + "." : "."));
@@ -404,30 +409,23 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
 
         int shown = 0;
         int max = Math.min(renderLimit, matches.size());
-        for (int i = 0; i < max; i++) {
-            templateList.addView(templateCard(matches.get(i)));
-            shown++;
-        }
+        for (int i = 0; i < max; i++) { templateList.addView(templateCard(matches.get(i))); shown++; }
 
         if (matches.isEmpty()) {
-            templateList.addView(muted(templates.isEmpty() ? "No templates cached yet. Tap Refresh Templates." : "Nothing found."));
+            templateList.addView(muted(templates.isEmpty() ? "No templates cached yet. Tap Refresh." : "Nothing found."));
             return;
         }
-
         if (matches.size() > shown) {
             LinearLayout more = new LinearLayout(this);
             more.setOrientation(LinearLayout.VERTICAL);
-            more.setPadding(0, dp(16), 0, dp(10));
+            more.setGravity(Gravity.CENTER_HORIZONTAL);
+            more.setPadding(0, dp(14), 0, dp(12));
             more.addView(muted("Showing " + shown + " of " + matches.size() + " templates."));
-            LinearLayout r = row();
-            more.addView(r);
-            action(r, "Show more", true, () -> { renderLimit += PAGE_SIZE; renderTemplates(); });
+            TextView showMore = link("Show more");
+            showMore.setGravity(Gravity.CENTER);
+            showMore.setOnClickListener(v -> { renderLimit += PAGE_SIZE; renderTemplates(); });
+            more.addView(showMore, new LinearLayout.LayoutParams(-1, dp(40)));
             templateList.addView(more);
-        } else {
-            TextView count = muted("Showing " + shown + " template" + (shown == 1 ? "" : "s") + ".");
-            count.setGravity(Gravity.CENTER_HORIZONTAL);
-            count.setPadding(0, dp(10), 0, dp(18));
-            templateList.addView(count);
         }
     }
 
@@ -435,7 +433,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(7), 0, dp(7));
+        row.setPadding(0, dp(7), 0, dp(13));
         row.setClickable(true);
         row.setOnClickListener(v -> openTemplate(item));
 
@@ -445,27 +443,41 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         img.setPadding(0, 0, 0, 0);
         img.setBackground(bg(rgb(11, 18, 32), 4, rgb(17, 24, 39), 1));
         img.setTag(item.id());
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(104), dp(76));
-        ip.setMargins(0, 0, dp(14), 0);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(126), dp(82));
+        ip.setMargins(0, 0, dp(16), 0);
         row.addView(img, ip);
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
-        row.addView(body, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView name = title(shortText(displayTitle(item), 58));
-        name.setTextSize(20);
-        body.addView(name);
+        body.setGravity(Gravity.CENTER_VERTICAL);
+        row.addView(body, new LinearLayout.LayoutParams(0, dp(82), 1));
+
+        TextView name = title(displayTitle(item));
+        name.setTextSize(17);
+        name.setSingleLine(false);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        name.setPadding(0, 0, 0, dp(4));
+        body.addView(name, new LinearLayout.LayoutParams(-1, -2));
+
         String desc = safe(item.description).trim();
-        body.addView(muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 84)));
+        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 160));
+        sub.setTextSize(13);
+        sub.setMaxLines(2);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        sub.setPadding(0, 0, 0, 0);
+        body.addView(sub, new LinearLayout.LayoutParams(-1, -2));
+
         if (!item.valid) {
-            TextView bad = muted("Template has parsing issues" + (safe(item.error).isEmpty() ? "" : ": " + shortText(item.error, 70)));
+            TextView bad = muted("Template has parsing issues");
             bad.setTextColor(rgb(251, 191, 36));
+            bad.setMaxLines(1);
             body.addView(bad);
         }
 
-        TextView arrow = text("›", 36, rgb(226, 232, 240));
+        TextView arrow = text("›", 32, rgb(226, 232, 240));
         arrow.setGravity(Gravity.CENTER);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(28), dp(76)));
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(82)));
         loadPreview(img, item);
         return row;
     }
@@ -491,9 +503,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 res.put("options", buildOptions(prompt, defs));
                 res.put("mode", "Templates");
                 ui.post(() -> importPrompt(res.toString()));
-            } catch (Exception e) {
-                ui.post(() -> setStatus("Template open failed: " + shortErr(e)));
-            }
+            } catch (Exception e) { ui.post(() -> setStatus("Template open failed: " + shortErr(e))); }
         }).start();
     }
 
@@ -555,10 +565,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             try {
                 for (String ext : previewExtensions(item)) {
                     File cached = previewFile(base, item, ext);
-                    if (cached.exists() && cached.length() > 0) {
-                        showPreviewFile(img, tag, cached);
-                        return;
-                    }
+                    if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; }
                 }
                 if (base.isEmpty()) return;
                 for (String ext : previewExtensions(item)) {
@@ -583,16 +590,12 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         LinkedHashSet<String> exts = new LinkedHashSet<>();
         String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US);
         if (!s.isEmpty()) exts.add(s);
-        exts.add("webp");
-        exts.add("gif");
-        exts.add("png");
-        exts.add("jpg");
-        exts.add("jpeg");
+        exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg");
         return new ArrayList<>(exts);
     }
 
     private void showPreviewFile(ImageView img, String expectedTag, File file) {
-        Bitmap bitmap = decodePreviewBitmap(file, dp(104), dp(76));
+        Bitmap bitmap = decodePreviewBitmap(file, dp(126), dp(82));
         if (bitmap == null) return;
         ui.post(() -> {
             Object currentTag = img.getTag();
@@ -650,52 +653,38 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private byte[] bytes(String url, int maxBytes) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         try {
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(30000);
+            c.setConnectTimeout(10000); c.setReadTimeout(30000);
             for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
             int code = c.getResponseCode();
             InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
             ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] b = new byte[8192];
-            int n;
-            int total = 0;
+            byte[] b = new byte[8192]; int n, total = 0;
             while (in != null && (n = in.read(b)) > 0) {
-                total += n;
-                if (total > maxBytes) throw new Exception("response is too large");
+                total += n; if (total > maxBytes) throw new Exception("response is too large");
                 out.write(b, 0, n);
             }
             if (in != null) in.close();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8"));
             return out.toByteArray();
-        } finally {
-            c.disconnect();
-        }
+        } finally { c.disconnect(); }
     }
 
     private void downloadToFile(String url, File file) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
         File tmp = new File(file.getAbsolutePath() + ".tmp");
         try {
-            c.setConnectTimeout(10000);
-            c.setReadTimeout(45000);
+            c.setConnectTimeout(10000); c.setReadTimeout(45000);
             for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
             int code = c.getResponseCode();
             InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
             if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists()) parent.mkdirs();
+            File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs();
             FileOutputStream out = new FileOutputStream(tmp);
-            byte[] b = new byte[16384];
-            int n;
+            byte[] b = new byte[16384]; int n;
             while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n);
-            if (in != null) in.close();
-            out.flush();
-            out.close();
+            if (in != null) in.close(); out.flush(); out.close();
             if (file.exists()) file.delete();
-            if (!tmp.renameTo(file)) {
-                writeBytes(file, readBytes(tmp));
-                tmp.delete();
-            }
+            if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); }
         } finally {
             c.disconnect();
             if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete();
@@ -707,73 +696,34 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         if (!dir.exists()) dir.mkdirs();
         return dir;
     }
-
-    private File rawTemplateFile(String base, TemplateItem item) {
-        return new File(cacheDir("raw"), sha1(base + "|" + item.id()) + ".json");
-    }
-
-    private File previewFile(String base, TemplateItem item, String ext) {
-        return new File(cacheDir("preview"), sha1(base + "|" + item.id() + "|" + ext) + "." + ext.replaceAll("[^A-Za-z0-9]", ""));
-    }
-
-    private String readText(File file) {
-        try {
-            byte[] data = readBytes(file);
-            return data.length == 0 ? "" : new String(data, "UTF-8");
-        } catch (Exception e) {
-            return "";
-        }
-    }
-
+    private File rawTemplateFile(String base, TemplateItem item) { return new File(cacheDir("raw"), sha1(base + "|" + item.id()) + ".json"); }
+    private File previewFile(String base, TemplateItem item, String ext) { return new File(cacheDir("preview"), sha1(base + "|" + item.id() + "|" + ext) + "." + ext.replaceAll("[^A-Za-z0-9]", "")); }
+    private String readText(File file) { try { byte[] data = readBytes(file); return data.length == 0 ? "" : new String(data, "UTF-8"); } catch (Exception e) { return ""; } }
     private byte[] readBytes(File file) {
         if (file == null || !file.exists() || !file.isFile()) return new byte[0];
         ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try {
-            FileInputStream in = new FileInputStream(file);
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-            in.close();
-            return out.toByteArray();
-        } catch (Exception e) {
-            return new byte[0];
-        }
+        try { FileInputStream in = new FileInputStream(file); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); in.close(); return out.toByteArray(); }
+        catch (Exception e) { return new byte[0]; }
     }
-
-    private void writeText(File file, String text) {
-        try { writeBytes(file, safe(text).getBytes("UTF-8")); } catch (Exception ignored) {}
-    }
-
+    private void writeText(File file, String text) { try { writeBytes(file, safe(text).getBytes("UTF-8")); } catch (Exception ignored) {} }
     private void writeBytes(File file, byte[] data) {
         if (file == null || data == null || data.length == 0) return;
-        try {
-            File parent = file.getParentFile();
-            if (parent != null && !parent.exists()) parent.mkdirs();
-            FileOutputStream out = new FileOutputStream(file);
-            out.write(data);
-            out.flush();
-            out.close();
-        } catch (Exception ignored) {}
+        try { File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(file); out.write(data); out.flush(); out.close(); } catch (Exception ignored) {}
     }
 
     private void importPrompt(String resultJson) {
         try {
+            View bottom = null;
+            try { bottom = (View) baseField("bottomNav"); } catch (Exception ignored) {}
+            if (bottom != null) bottom.setVisibility(View.VISIBLE);
             Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class);
             m.setAccessible(true);
             m.invoke(this, resultJson);
             hookTemplateButtons((View) getWindow().getDecorView());
-        } catch (Exception e) {
-            setStatus("Import failed: " + shortErr(e));
-        }
+        } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, String> accessHeaders() throws Exception {
-        Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders");
-        m.setAccessible(true);
-        return (Map<String, String>) m.invoke(this);
-    }
-
+    @SuppressWarnings("unchecked") private Map<String, String> accessHeaders() throws Exception { Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders"); m.setAccessible(true); return (Map<String, String>) m.invoke(this); }
     private String baseUrl() { try { Object x = callBase("baseUrl"); return x == null ? "" : String.valueOf(x); } catch (Exception e) { return ""; } }
     private Object baseField(String name) throws Exception { Field f = PolishedNodeActivity.class.getDeclaredField(name); f.setAccessible(true); return f.get(this); }
     private Object callBase(String name) throws Exception { Method m = PolishedNodeActivity.class.getDeclaredMethod(name); m.setAccessible(true); return m.invoke(this); }
@@ -791,11 +741,9 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private void setStatus(String text) { try { Object status = baseField("status"); if (status instanceof TextView) ((TextView) status).setText(text); } catch (Exception ignored) {} }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
-    private LinearLayout row() { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setPadding(0, dp(8), 0, 0); return r; }
-    private LinearLayout.LayoutParams cardParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(14)); return p; }
     private TextView title(String t) { TextView v = text(t, 22, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
     private TextView muted(String t) { return text(t, 14, rgb(148, 148, 158)); }
-    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setPadding(dp(2), 0, dp(2), dp(8)); return v; }
-    private void action(LinearLayout r, String text, boolean primary, Runnable run) { Button b = new Button(this); b.setText(text); b.setAllCaps(false); b.setTextColor(Color.WHITE); b.setTextSize(15); b.setBackground(bg(primary ? rgb(23, 37, 84) : rgb(17, 24, 39), 18, primary ? rgb(56, 189, 248) : rgb(51, 65, 85), 1)); b.setOnClickListener(v -> run.run()); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(54), 1); p.setMargins(dp(3), 0, dp(3), 0); r.addView(b, p); }
+    private TextView link(String t) { TextView v = text(t, 14, rgb(226, 232, 240)); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); v.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); v.setClickable(true); return v; }
+    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setPadding(dp(2), 0, dp(2), dp(6)); return v; }
     private GradientDrawable bg(int color, int radiusDp, int stroke, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radiusDp)); d.setStroke(dp(strokeDp), stroke); return d; }
 }
