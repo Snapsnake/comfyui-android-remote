@@ -1,6 +1,6 @@
 package com.snapsnake.comfyremote;
 
-public class ComfyMobileActivity extends TemplateBrowserActivity {
+public class ComfyMobileActivity extends RobustTemplateBrowserActivity {
     // Launcher activity only.
-    // No overlay shell and no global skin pass: the UI must be implemented in the real base activities.
+    // UI is implemented in the real base activities, without overlay or global skin pass.
 }
