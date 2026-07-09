@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 34
-        versionName = "0.10.1-mockup-shell"
+        versionCode = 35
+        versionName = "0.10.2-no-overlay"
     }
 }
