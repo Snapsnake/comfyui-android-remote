@@ -21,10 +21,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
-import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.ScrollView;
 import android.widget.TextView;
 
 import org.json.JSONArray;
@@ -68,16 +66,28 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private boolean templateScreen = false;
 
     private static class TemplateItem {
-        String source, name, title, description, category, mediaSubtype;
+        String source;
+        String name;
+        String title;
+        String description;
+        String category;
+        String mediaSubtype;
         boolean valid = true;
+
         String id() { return safe(source).trim() + "/" + safe(name).trim(); }
+
         JSONObject toJson() throws JSONException {
             JSONObject o = new JSONObject();
-            o.put("source", safe(source)); o.put("name", safe(name)); o.put("title", safe(title));
-            o.put("description", safe(description)); o.put("category", safe(category));
-            o.put("mediaSubtype", safe(mediaSubtype)); o.put("valid", valid);
+            o.put("source", safe(source));
+            o.put("name", safe(name));
+            o.put("title", safe(title));
+            o.put("description", safe(description));
+            o.put("category", safe(category));
+            o.put("mediaSubtype", safe(mediaSubtype));
+            o.put("valid", valid);
             return o;
         }
+
         static TemplateItem fromJson(JSONObject o) {
             TemplateItem item = new TemplateItem();
             item.source = o.optString("source", "default");
@@ -89,18 +99,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             item.valid = o.optBoolean("valid", true);
             return item;
         }
+
         private static String safe(String s) { return s == null ? "" : s; }
     }
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         loadCachedTemplates();
-        hookTemplateEntry((View) getWindow().getDecorView());
-    }
-
-    @Override public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hookTemplateEntry((View) getWindow().getDecorView());
     }
 
     @Override public void onBackPressed() {
@@ -108,40 +113,16 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         super.onBackPressed();
     }
 
-    private void hookTemplateEntry(View v) {
-        if (v == null) return;
-        if (v instanceof Button) {
-            Button b = (Button) v;
-            String t = String.valueOf(b.getText()).trim();
-            if ("Graph".equalsIgnoreCase(t) || "Templates".equalsIgnoreCase(t) || "Tpl".equalsIgnoreCase(t) || "Open Graph".equalsIgnoreCase(t)) {
-                b.setText("Templates");
-                b.setOnClickListener(x -> showTemplates());
-            }
-        } else if (v instanceof ViewGroup) {
-            String txt = subtreeText(v).trim().toLowerCase(Locale.US);
-            boolean exactTemplateNav = txt.contains("templates") && !txt.contains("create") && !txt.contains("nodes") && !txt.contains("run") && !txt.contains("output");
-            if (exactTemplateNav) {
-                v.setClickable(true);
-                v.setOnClickListener(x -> showTemplates());
-            }
-            ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) hookTemplateEntry(g.getChildAt(i));
-        }
+    @Override protected void showTemplatesTab() {
+        showTemplatesScreen();
     }
 
-    private String subtreeText(View v) {
-        if (v instanceof TextView) return String.valueOf(((TextView) v).getText()) + " ";
-        if (!(v instanceof ViewGroup)) return "";
-        ViewGroup g = (ViewGroup) v;
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < g.getChildCount() && i < 8; i++) sb.append(subtreeText(g.getChildAt(i)));
-        return sb.toString();
-    }
-
-    private void showTemplates() {
+    private void showTemplatesScreen() {
         try {
             templateScreen = true;
             callBaseQuiet("saveUrl");
+            setBaseScreen("templates");
+
             View pane = (View) baseField("pane");
             View graph = (View) baseField("graph");
             View output = (View) baseField("output");
@@ -151,18 +132,19 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             if (pane != null) pane.setVisibility(View.VISIBLE);
             if (graph != null) graph.setVisibility(View.GONE);
             if (output != null) output.setVisibility(View.GONE);
+
             content.removeAllViews();
             content.setBackgroundColor(bgRoot());
             content.setPadding(dp(22), dp(18), dp(22), dp(22));
-
             content.addView(connectionChip(), sectionParams());
-            content.addView(pageHeader("Templates", "Browse and load workflow templates"));
-            content.addView(searchPanel(), sectionParams());
+            content.addView(pageHeader(), sectionParams());
+            content.addView(searchCard(), sectionParams());
+
             templateList = new LinearLayout(this);
             templateList.setOrientation(LinearLayout.VERTICAL);
             content.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
 
-            renderTemplateBottomNav();
+            renderBottomNav();
             if (templates.isEmpty()) {
                 loadCachedTemplates();
                 if (templates.isEmpty() && !baseUrl().isEmpty()) loadTemplates();
@@ -180,8 +162,8 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         templateScreen = false;
         templateList = null;
         search = null;
+        setBaseScreen("create");
         try { callBase("showCreate"); } catch (Exception ignored) {}
-        hookTemplateEntry((View) getWindow().getDecorView());
     }
 
     private View connectionChip() {
@@ -197,20 +179,20 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         TextView arrow = muted("›", 20);
         arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         chip.addView(arrow, new LinearLayout.LayoutParams(dp(24), -1));
-        chip.setOnClickListener(v -> { try { callBase("toggleTopPanel"); } catch (Exception ignored) {} });
+        chip.setOnClickListener(v -> callBaseQuiet("toggleTopPanel"));
         return chip;
     }
 
-    private View pageHeader(String title, String subtitle) {
+    private View pageHeader() {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(0, dp(8), 0, dp(10));
+        head.setPadding(0, dp(4), 0, dp(4));
         LinearLayout texts = new LinearLayout(this);
         texts.setOrientation(LinearLayout.VERTICAL);
         head.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
-        texts.addView(title(title, 28));
-        texts.addView(muted(subtitle, 13));
+        texts.addView(title("Templates", 28));
+        texts.addView(muted("Browse and load workflow templates", 13));
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_launcher);
         logo.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -219,18 +201,21 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         return head;
     }
 
-    private View searchPanel() {
+    private View searchCard() {
         LinearLayout tools = card(false);
         tools.setPadding(dp(12), dp(12), dp(12), dp(12));
+
         LinearLayout searchBox = new LinearLayout(this);
         searchBox.setOrientation(LinearLayout.HORIZONTAL);
         searchBox.setGravity(Gravity.CENTER_VERTICAL);
         searchBox.setPadding(dp(12), 0, dp(10), 0);
         searchBox.setBackground(bg(surface2(), 10, stroke(), 1));
         tools.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(48)));
+
         TextView icon = muted("⌕", 22);
         icon.setGravity(Gravity.CENTER);
         searchBox.addView(icon, new LinearLayout.LayoutParams(dp(30), -1));
+
         search = new EditText(this);
         search.setSingleLine(true);
         search.setText(filter == null ? "" : filter);
@@ -241,6 +226,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         search.setPadding(dp(8), 0, 0, 0);
         search.setBackgroundColor(Color.TRANSPARENT);
         searchBox.addView(search, new LinearLayout.LayoutParams(0, -1, 1));
+
         TextView filterIcon = muted("☷", 18);
         filterIcon.setGravity(Gravity.CENTER);
         searchBox.addView(filterIcon, new LinearLayout.LayoutParams(dp(32), -1));
@@ -263,7 +249,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         ap.setMargins(0, dp(6), 0, dp(6));
         tools.addView(actions, ap);
         actions.addView(actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh Templates", true, this::loadTemplates), weight(dp(48)));
-        actions.addView(actionButton("⌫ Clear", false, () -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); }), weight(dp(48)));
+        actions.addView(actionButton("⌫ Clear", false, () -> {
+            filter = "";
+            renderLimit = PAGE_SIZE;
+            if (search != null) search.setText("");
+            renderTemplates();
+        }), weight(dp(48)));
+
         templateStatus = muted("Refresh once to cache templates and previews.", 12);
         templateStatus.setSingleLine(true);
         templateStatus.setEllipsize(TextUtils.TruncateAt.END);
@@ -271,14 +263,18 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
 
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int count) { filter = String.valueOf(s == null ? "" : s); renderLimit = PAGE_SIZE; renderTemplates(); }
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                filter = String.valueOf(s == null ? "" : s);
+                renderLimit = PAGE_SIZE;
+                renderTemplates();
+            }
             public void afterTextChanged(Editable s) {}
         });
         refreshMeta();
         return tools;
     }
 
-    private void renderTemplateBottomNav() {
+    private void renderBottomNav() {
         try {
             LinearLayout nav = (LinearLayout) baseField("bottomNav");
             if (nav == null) return;
@@ -286,10 +282,10 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             nav.removeAllViews();
             nav.setBackgroundColor(surface());
             nav.addView(navItem("⊞", "Create", false, () -> leaveTemplates()), weight(dp(62)));
-            nav.addView(navItem("⌘", "Nodes", false, () -> { templateScreen = false; callBaseQuiet("showNodes"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
-            nav.addView(navItem("▦", "Templates", true, this::showTemplates), weight(dp(62)));
-            nav.addView(navItem("▷", "Run", false, () -> { templateScreen = false; callBaseQuiet("runWorkflow"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
-            nav.addView(navItem("▧", "Output", false, () -> { templateScreen = false; callBaseQuiet("openOutput"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
+            nav.addView(navItem("⌘", "Nodes", false, () -> { templateScreen = false; callBaseQuiet("showNodes"); }), weight(dp(62)));
+            nav.addView(navItem("▦", "Templates", true, this::showTemplatesScreen), weight(dp(62)));
+            nav.addView(navItem("▷", "Run", false, () -> { templateScreen = false; callBaseQuiet("runWorkflow"); }), weight(dp(62)));
+            nav.addView(navItem("▧", "Output", false, () -> { templateScreen = false; callBaseQuiet("openOutput"); }), weight(dp(62)));
         } catch (Exception ignored) {}
     }
 
@@ -360,8 +356,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                         String name = arr.optString(i, "").trim();
                         if (name.isEmpty()) continue;
                         TemplateItem item = new TemplateItem();
-                        item.source = module; item.name = name; item.title = name; item.description = module;
-                        item.category = "Custom templates"; item.mediaSubtype = ""; item.valid = true;
+                        item.source = module;
+                        item.name = name;
+                        item.title = name;
+                        item.description = module;
+                        item.category = "Custom templates";
+                        item.mediaSubtype = "";
+                        item.valid = true;
                         loaded.add(item);
                     }
                 }
@@ -371,11 +372,19 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             ui.post(() -> {
                 refreshing = false;
                 if (!loaded.isEmpty()) {
-                    templates.clear(); templates.addAll(loaded); lastUpdatedAt = updatedAt;
-                    saveTemplateCards(loaded, updatedAt); renderLimit = PAGE_SIZE; refreshMeta(); renderTemplates();
+                    templates.clear();
+                    templates.addAll(loaded);
+                    lastUpdatedAt = updatedAt;
+                    saveTemplateCards(loaded, updatedAt);
+                    renderLimit = PAGE_SIZE;
+                    refreshMeta();
+                    renderTemplates();
                     setStatus("Loaded " + loaded.size() + " templates. Preloading workflow JSON..." + warning);
                     preloadTemplateJsons(base, new ArrayList<>(loaded));
-                } else { renderTemplates(); setStatus("Refresh failed; kept local cache." + warning); }
+                } else {
+                    renderTemplates();
+                    setStatus("Refresh failed; kept local cache." + warning);
+                }
             });
         }).start();
     }
@@ -390,7 +399,10 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 if (item == null || !item.valid || safe(item.name).trim().isEmpty()) continue;
                 try { String raw = getText(templateJsonUrl(base, item)); writeText(rawTemplateFile(base, item), raw); ok++; }
                 catch (Exception e) { failed++; }
-                if (i % 10 == 0) { int done = i + 1, count = ok; ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + ".")); }
+                if (i % 10 == 0) {
+                    int done = i + 1, count = ok;
+                    ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + "."));
+                }
             }
             int finalOk = ok, finalFailed = failed;
             ui.post(() -> { preloading = false; setStatus("Templates ready. Cached workflows: " + finalOk + (finalFailed > 0 ? ", failed: " + finalFailed + "." : ".")); });
@@ -468,7 +480,10 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 JSONObject prompt = extractApiPrompt(graph);
                 JSONObject defs = new JSONObject(getText(base + "/api/object_info"));
                 JSONObject res = new JSONObject();
-                res.put("ok", true); res.put("prompt", prompt); res.put("options", buildOptions(prompt, defs)); res.put("mode", "Templates");
+                res.put("ok", true);
+                res.put("prompt", prompt);
+                res.put("options", buildOptions(prompt, defs));
+                res.put("mode", "Templates");
                 ui.post(() -> importPrompt(res.toString()));
             } catch (Exception e) { ui.post(() -> setStatus("Template open failed: " + shortErr(e))); }
         }).start();
@@ -485,31 +500,150 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         if (looksApiPrompt(graph)) return graph;
         throw new JSONException("template has no embedded API prompt");
     }
-    private boolean looksApiPrompt(JSONObject o) { if (o == null) return false; Iterator<String> it = o.keys(); while (it.hasNext()) { JSONObject n = o.optJSONObject(it.next()); if (n != null && n.has("class_type")) return true; } return false; }
-    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException { JSONObject options = new JSONObject(); Iterator<String> ids = prompt.keys(); while (ids.hasNext()) { String id = ids.next(); JSONObject node = prompt.optJSONObject(id); if (node == null) continue; JSONObject def = defs.optJSONObject(node.optString("class_type", "")); JSONObject input = def == null ? null : def.optJSONObject("input"); addOptions(options, id, input == null ? null : input.optJSONObject("required")); addOptions(options, id, input == null ? null : input.optJSONObject("optional")); } return options; }
-    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException { if (section == null) return; Iterator<String> it = section.keys(); while (it.hasNext()) { String key = it.next(); Object raw = section.opt(key); if (raw instanceof JSONArray) { Object first = ((JSONArray) raw).opt(0); if (first instanceof JSONArray) out.put(id + ":" + key, first); } } }
+
+    private boolean looksApiPrompt(JSONObject o) {
+        if (o == null) return false;
+        Iterator<String> it = o.keys();
+        while (it.hasNext()) {
+            JSONObject n = o.optJSONObject(it.next());
+            if (n != null && n.has("class_type")) return true;
+        }
+        return false;
+    }
+
+    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException {
+        JSONObject options = new JSONObject();
+        Iterator<String> ids = prompt.keys();
+        while (ids.hasNext()) {
+            String id = ids.next();
+            JSONObject node = prompt.optJSONObject(id);
+            if (node == null) continue;
+            JSONObject def = defs.optJSONObject(node.optString("class_type", ""));
+            JSONObject input = def == null ? null : def.optJSONObject("input");
+            addOptions(options, id, input == null ? null : input.optJSONObject("required"));
+            addOptions(options, id, input == null ? null : input.optJSONObject("optional"));
+        }
+        return options;
+    }
+
+    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException {
+        if (section == null) return;
+        Iterator<String> it = section.keys();
+        while (it.hasNext()) {
+            String key = it.next();
+            Object raw = section.opt(key);
+            if (raw instanceof JSONArray) {
+                Object first = ((JSONArray) raw).opt(0);
+                if (first instanceof JSONArray) out.put(id + ":" + key, first);
+            }
+        }
+    }
 
     private void loadPreview(ImageView img, TemplateItem item) {
-        String base = baseUrl(), tag = item.id(); img.setTag(tag);
-        new Thread(() -> { try {
-            for (String ext : previewExtensions(item)) { File cached = previewFile(base, item, ext); if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; } }
-            if (base.isEmpty()) return;
-            for (String ext : previewExtensions(item)) {
-                try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, false), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
-                try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, true), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
-            }
-        } catch (Exception ignored) {} }).start();
+        String base = baseUrl();
+        String tag = item.id();
+        img.setTag(tag);
+        new Thread(() -> {
+            try {
+                for (String ext : previewExtensions(item)) {
+                    File cached = previewFile(base, item, ext);
+                    if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; }
+                }
+                if (base.isEmpty()) return;
+                for (String ext : previewExtensions(item)) {
+                    try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, false), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
+                    try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, true), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
+                }
+            } catch (Exception ignored) {}
+        }).start();
     }
-    private ArrayList<String> previewExtensions(TemplateItem item) { LinkedHashSet<String> exts = new LinkedHashSet<>(); String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US); if (!s.isEmpty()) exts.add(s); exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg"); return new ArrayList<>(exts); }
-    private void showPreviewFile(ImageView img, String tag, File file) { Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92)); if (bitmap == null) return; ui.post(() -> { Object current = img.getTag(); if (current != null && String.valueOf(current).equals(tag)) img.setImageBitmap(bitmap); }); }
-    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) { if (file == null || !file.exists() || file.length() <= 0) return null; try { BitmapFactory.Options b = new BitmapFactory.Options(); b.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), b); if (b.outWidth > 0 && b.outHeight > 0) { BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565; o.inSampleSize = sampleSize(b.outWidth, b.outHeight, targetW, targetH); return BitmapFactory.decodeFile(file.getAbsolutePath(), o); } } catch (Exception ignored) {} if (Build.VERSION.SDK_INT >= 28) { try { return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file), (decoder, info, src) -> { decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE); Size s = info.getSize(); int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH); decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample)); }); } catch (Exception ignored) {} } return null; }
-    private int sampleSize(int w, int h, int tw, int th) { int sample = 1; while ((w / sample) > tw * 2 || (h / sample) > th * 2) sample *= 2; return Math.max(1, sample); }
 
+    private ArrayList<String> previewExtensions(TemplateItem item) {
+        LinkedHashSet<String> exts = new LinkedHashSet<>();
+        String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US);
+        if (!s.isEmpty()) exts.add(s);
+        exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg");
+        return new ArrayList<>(exts);
+    }
+
+    private void showPreviewFile(ImageView img, String tag, File file) {
+        Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92));
+        if (bitmap == null) return;
+        ui.post(() -> {
+            Object current = img.getTag();
+            if (current != null && String.valueOf(current).equals(tag)) img.setImageBitmap(bitmap);
+        });
+    }
+
+    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) {
+        if (file == null || !file.exists() || file.length() <= 0) return null;
+        try {
+            BitmapFactory.Options b = new BitmapFactory.Options();
+            b.inJustDecodeBounds = true;
+            BitmapFactory.decodeFile(file.getAbsolutePath(), b);
+            if (b.outWidth > 0 && b.outHeight > 0) {
+                BitmapFactory.Options o = new BitmapFactory.Options();
+                o.inPreferredConfig = Bitmap.Config.RGB_565;
+                o.inSampleSize = sampleSize(b.outWidth, b.outHeight, targetW, targetH);
+                return BitmapFactory.decodeFile(file.getAbsolutePath(), o);
+            }
+        } catch (Exception ignored) {}
+        if (Build.VERSION.SDK_INT >= 28) {
+            try {
+                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file), (decoder, info, src) -> {
+                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
+                    Size s = info.getSize();
+                    int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH);
+                    decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample));
+                });
+            } catch (Exception ignored) {}
+        }
+        return null;
+    }
+
+    private int sampleSize(int w, int h, int tw, int th) { int sample = 1; while ((w / sample) > tw * 2 || (h / sample) > th * 2) sample *= 2; return Math.max(1, sample); }
     private String templateJsonUrl(String base, TemplateItem item) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + ".json"; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json"; }
     private String previewUrl(String base, TemplateItem item, String ext, boolean fallback) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
     private String getText(String url) throws Exception { return new String(bytes(url, MAX_TEXT_BYTES), "UTF-8"); }
-    private byte[] bytes(String url, int maxBytes) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(10000); c.setReadTimeout(30000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n, total = 0; while (in != null && (n = in.read(b)) > 0) { total += n; if (total > maxBytes) throw new Exception("response is too large"); out.write(b, 0, n); } if (in != null) in.close(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8")); return out.toByteArray(); } finally { c.disconnect(); } }
-    private void downloadToFile(String url, File file) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); File tmp = new File(file.getAbsolutePath() + ".tmp"); try { c.setConnectTimeout(10000); c.setReadTimeout(45000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code); File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(tmp); byte[] b = new byte[16384]; int n; while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n); if (in != null) in.close(); out.flush(); out.close(); if (file.exists()) file.delete(); if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); } } finally { c.disconnect(); if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete(); } }
+
+    private byte[] bytes(String url, int maxBytes) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        try {
+            c.setConnectTimeout(10000); c.setReadTimeout(30000);
+            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
+            int code = c.getResponseCode();
+            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] b = new byte[8192]; int n, total = 0;
+            while (in != null && (n = in.read(b)) > 0) { total += n; if (total > maxBytes) throw new Exception("response is too large"); out.write(b, 0, n); }
+            if (in != null) in.close();
+            if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8"));
+            return out.toByteArray();
+        } finally { c.disconnect(); }
+    }
+
+    private void downloadToFile(String url, File file) throws Exception {
+        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
+        File tmp = new File(file.getAbsolutePath() + ".tmp");
+        try {
+            c.setConnectTimeout(10000); c.setReadTimeout(45000);
+            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
+            int code = c.getResponseCode();
+            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
+            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
+            File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs();
+            FileOutputStream out = new FileOutputStream(tmp);
+            byte[] b = new byte[16384]; int n;
+            while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n);
+            if (in != null) in.close(); out.flush(); out.close();
+            if (file.exists()) file.delete();
+            if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); }
+        } finally {
+            c.disconnect();
+            if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete();
+        }
+    }
+
     private File cacheDir(String child) { File dir = new File(getFilesDir(), "template_cache/" + child); if (!dir.exists()) dir.mkdirs(); return dir; }
     private File rawTemplateFile(String base, TemplateItem item) { return new File(cacheDir("raw"), sha1(base + "|" + item.id()) + ".json"); }
     private File previewFile(String base, TemplateItem item, String ext) { return new File(cacheDir("preview"), sha1(base + "|" + item.id() + "|" + ext) + "." + ext.replaceAll("[^A-Za-z0-9]", "")); }
@@ -517,13 +651,24 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private byte[] readBytes(File file) { if (file == null || !file.exists() || !file.isFile()) return new byte[0]; ByteArrayOutputStream out = new ByteArrayOutputStream(); try { FileInputStream in = new FileInputStream(file); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); in.close(); return out.toByteArray(); } catch (Exception e) { return new byte[0]; } }
     private void writeText(File file, String text) { try { writeBytes(file, safe(text).getBytes("UTF-8")); } catch (Exception ignored) {} }
     private void writeBytes(File file, byte[] data) { if (file == null || data == null || data.length == 0) return; try { File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(file); out.write(data); out.flush(); out.close(); } catch (Exception ignored) {} }
-    private void importPrompt(String resultJson) { try { templateScreen = false; Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class); m.setAccessible(true); m.invoke(this, resultJson); hookTemplateEntry((View) getWindow().getDecorView()); } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); } }
+
+    private void importPrompt(String resultJson) {
+        try {
+            templateScreen = false;
+            setBaseScreen("create");
+            Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class);
+            m.setAccessible(true);
+            m.invoke(this, resultJson);
+        } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); }
+    }
 
     @SuppressWarnings("unchecked") private Map<String, String> accessHeaders() throws Exception { Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders"); m.setAccessible(true); return (Map<String, String>) m.invoke(this); }
     private String baseUrl() { Object x = callBaseQuiet("baseUrl"); return x == null ? "" : String.valueOf(x); }
     private Object baseField(String name) throws Exception { Field f = PolishedNodeActivity.class.getDeclaredField(name); f.setAccessible(true); return f.get(this); }
     private Object callBase(String name) throws Exception { Method m = PolishedNodeActivity.class.getDeclaredMethod(name); m.setAccessible(true); return m.invoke(this); }
     private Object callBaseQuiet(String name) { try { return callBase(name); } catch (Exception e) { return null; } }
+    private void setBaseScreen(String value) { try { Field f = PolishedNodeActivity.class.getDeclaredField("screen"); f.setAccessible(true); f.set(this, value); } catch (Exception ignored) {} }
+
     private void refreshMeta() { if (loadedText != null) { loadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " templates"); loadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent()); } if (updatedText != null) updatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet"); }
     private void setStatus(String s) { Object x = null; try { x = baseField("status"); } catch (Exception ignored) {} if (x instanceof TextView) ((TextView) x).setText(s); if (templateStatus != null) templateStatus.setText(s); }
     private String path(String s) { try { return URLEncoder.encode(s == null ? "" : s, "UTF-8").replace("+", "%20").replace("%2F", "/"); } catch (Exception e) { return s == null ? "" : s; } }
@@ -536,6 +681,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private String joinWarnings(ArrayList<String> warnings) { if (warnings == null || warnings.isEmpty()) return ""; StringBuilder sb = new StringBuilder(" Warning: "); for (int i = 0; i < warnings.size(); i++) { if (i > 0) sb.append("; "); sb.append(warnings.get(i)); } return sb.toString(); }
     private String timeAgo(long ts) { long sec = Math.max(0L, (System.currentTimeMillis() - ts) / 1000L); if (sec < 60) return "just now"; long min = sec / 60L; if (min < 60) return min + "m ago"; long h = min / 60L; if (h < 24) return h + "h ago"; return (h / 24L) + "d ago"; }
     private String sha1(String value) { try { MessageDigest md = MessageDigest.getInstance("SHA-1"); byte[] d = md.digest(safe(value).getBytes("UTF-8")); StringBuilder sb = new StringBuilder(); for (byte b : d) sb.append(String.format(Locale.US, "%02x", b & 0xff)); return sb.toString(); } catch (Exception e) { return String.valueOf(safe(value).hashCode()).replace("-", "n"); } }
+
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
     private int bgRoot() { return Color.rgb(18,18,19); }
