@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 46
-        versionName = "0.12.0-okhttp-native-foundation"
+        versionCode = 47
+        versionName = "0.12.1-cache-real-templates"
     }
 }
 
