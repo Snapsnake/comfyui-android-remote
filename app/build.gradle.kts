@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 39
-        versionName = "0.10.6-node-search-template-convert"
+        versionCode = 40
+        versionName = "0.10.7-node-override-fix"
     }
 }
