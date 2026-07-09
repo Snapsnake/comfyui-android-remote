@@ -10,7 +10,11 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 45
-        versionName = "0.11.2-rescue-native-http-cache"
+        versionCode = 46
+        versionName = "0.12.0-okhttp-native-foundation"
     }
+}
+
+dependencies {
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 }
