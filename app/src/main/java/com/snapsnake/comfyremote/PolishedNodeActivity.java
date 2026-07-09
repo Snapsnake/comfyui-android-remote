@@ -12,8 +12,6 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.provider.OpenableColumns;
-import android.database.Cursor;
 import android.text.InputType;
 import android.text.TextUtils;
 import android.view.Gravity;
@@ -46,6 +44,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
@@ -78,14 +77,23 @@ public class PolishedNodeActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
 
     private static class ApiField {
-        final String node, key;
+        final String node;
+        final String key;
         final EditText edit;
         ApiField(String node, String key, EditText edit) { this.node = node; this.key = key; this.edit = edit; }
     }
+
     private static class OutputFile {
-        final String filename, subfolder, type;
-        OutputFile(String filename, String subfolder, String type) { this.filename = filename; this.subfolder = subfolder; this.type = type; }
+        final String filename;
+        final String subfolder;
+        final String type;
+        OutputFile(String filename, String subfolder, String type) {
+            this.filename = filename;
+            this.subfolder = subfolder;
+            this.type = type;
+        }
     }
+
     private class Bridge {
         @JavascriptInterface public void onImportResult(String json) {
             handler.post(() -> {
@@ -119,6 +127,7 @@ public class PolishedNodeActivity extends Activity {
 
         TextView appTitle = titleText("ComfyUI Mobile", 18);
         topPanel.addView(appTitle);
+
         urlInput = input("http://desktop-name.tailnet.ts.net:8188", true);
         LinearLayout.LayoutParams urlLp = new LinearLayout.LayoutParams(-1, dp(48));
         urlLp.setMargins(0, dp(8), 0, dp(8));
@@ -135,6 +144,10 @@ public class PolishedNodeActivity extends Activity {
         busyBar.setMax(100);
         busyBar.setVisibility(View.GONE);
         root.addView(busyBar, new LinearLayout.LayoutParams(-1, dp(3)));
+
+        status = new TextView(this);
+        status.setVisibility(View.GONE);
+        root.addView(status, new LinearLayout.LayoutParams(0, 0));
 
         workspace = new FrameLayout(this);
         workspace.setBackgroundColor(bgRoot());
@@ -154,6 +167,7 @@ public class PolishedNodeActivity extends Activity {
         graph = new WebView(this);
         graph.setVisibility(View.GONE);
         workspace.addView(graph, new FrameLayout.LayoutParams(-1, -1));
+
         output = new WebView(this);
         output.setVisibility(View.GONE);
         workspace.addView(output, new FrameLayout.LayoutParams(-1, -1));
@@ -164,11 +178,6 @@ public class PolishedNodeActivity extends Activity {
         bottomNav.setPadding(dp(14), dp(8), dp(14), dp(8));
         bottomNav.setBackgroundColor(surface());
         root.addView(bottomNav, new LinearLayout.LayoutParams(-1, dp(78)));
-        bottomNav.addView(navItem("⊞", "Create", true, this::showCreate), weight(dp(62)));
-        bottomNav.addView(navItem("⌘", "Nodes", false, this::showNodes), weight(dp(62)));
-        bottomNav.addView(navItem("▦", "Templates", false, this::showGraph), weight(dp(62)));
-        bottomNav.addView(navItem("▷", "Run", false, this::runWorkflow), weight(dp(62)));
-        bottomNav.addView(navItem("▧", "Output", false, this::openOutput), weight(dp(62)));
 
         setContentView(root);
     }
@@ -179,8 +188,14 @@ public class PolishedNodeActivity extends Activity {
         lastOutputUrl = p.getString(KEY_OUTPUT, "");
         lastGenerationDurationMs = p.getLong(KEY_LAST_DURATION, 0L);
         if (p.contains(KEY_URL)) topPanel.setVisibility(View.GONE);
-        try { workflow = cleanWorkflow(new JSONObject(p.getString(KEY_WORKFLOW, "{}"))); if (workflow.length() == 0) workflow = null; } catch (Exception ignored) { workflow = null; }
-        try { fieldOptions = new JSONObject(p.getString(KEY_OPTIONS, "{}")); } catch (Exception ignored) { fieldOptions = new JSONObject(); }
+        try {
+            workflow = cleanWorkflow(new JSONObject(p.getString(KEY_WORKFLOW, "{}")));
+            if (workflow.length() == 0) workflow = null;
+        } catch (Exception ignored) {
+            workflow = null;
+        }
+        try { fieldOptions = new JSONObject(p.getString(KEY_OPTIONS, "{}")); }
+        catch (Exception ignored) { fieldOptions = new JSONObject(); }
     }
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"}) private void configureWebViews() {
@@ -193,7 +208,11 @@ public class PolishedNodeActivity extends Activity {
                 webFileCallback = cb;
                 Intent intent;
                 try { intent = params.createIntent(); }
-                catch (Exception e) { intent = new Intent(Intent.ACTION_GET_CONTENT); intent.addCategory(Intent.CATEGORY_OPENABLE); intent.setType("*/*"); }
+                catch (Exception e) {
+                    intent = new Intent(Intent.ACTION_GET_CONTENT);
+                    intent.addCategory(Intent.CATEGORY_OPENABLE);
+                    intent.setType("*/*");
+                }
                 try { startActivityForResult(intent, REQ_WEB_FILE); return true; }
                 catch (Exception e) { webFileCallback = null; toast("No file picker available"); return false; }
             }
@@ -210,9 +229,17 @@ public class PolishedNodeActivity extends Activity {
 
     private void configureWebView(WebView w) {
         WebSettings s = w.getSettings();
-        s.setJavaScriptEnabled(true); s.setDomStorageEnabled(true); s.setDatabaseEnabled(true);
-        s.setAllowFileAccess(true); s.setAllowContentAccess(true); s.setLoadWithOverviewMode(true); s.setUseWideViewPort(true);
-        s.setBuiltInZoomControls(true); s.setDisplayZoomControls(false); s.setSupportZoom(true); s.setTextZoom(100);
+        s.setJavaScriptEnabled(true);
+        s.setDomStorageEnabled(true);
+        s.setDatabaseEnabled(true);
+        s.setAllowFileAccess(true);
+        s.setAllowContentAccess(true);
+        s.setLoadWithOverviewMode(true);
+        s.setUseWideViewPort(true);
+        s.setBuiltInZoomControls(true);
+        s.setDisplayZoomControls(false);
+        s.setSupportZoom(true);
+        s.setTextZoom(100);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         w.setOverScrollMode(View.OVER_SCROLL_NEVER);
         w.setBackgroundColor(bgRoot());
@@ -237,17 +264,20 @@ public class PolishedNodeActivity extends Activity {
     private void renderNoWorkflowCard() {
         LinearLayout card = card(false);
         card.addView(cardTitle("‹/›", "Workflow"));
+
         LinearLayout buttons = row();
         buttons.setPadding(0, dp(10), 0, dp(10));
-        buttons.addView(actionButton("▦  Templates", false, this::showGraph), weight(dp(54)));
+        buttons.addView(actionButton("▦  Templates", false, this::showTemplatesTab), weight(dp(54)));
         buttons.addView(actionButton("⇩  Import", true, this::importFromGraph), weight(dp(54)));
         card.addView(buttons);
+
         card.addView(label("Fallback: paste API workflow JSON"));
         jsonEditor = input("Paste or drop workflow JSON here…", false);
         jsonEditor.setGravity(Gravity.TOP | Gravity.LEFT);
         jsonEditor.setMinLines(6);
         jsonEditor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         card.addView(jsonEditor, new LinearLayout.LayoutParams(-1, dp(170)));
+
         LinearLayout jsonButtons = row();
         jsonButtons.setPadding(0, dp(12), 0, 0);
         jsonButtons.addView(actionButton("▱  Load JSON", false, this::chooseJson), weight(dp(52)));
@@ -261,11 +291,13 @@ public class PolishedNodeActivity extends Activity {
         LinearLayout loaded = card(false);
         loaded.setOrientation(LinearLayout.HORIZONTAL);
         loaded.setGravity(Gravity.CENTER_VERTICAL);
+
         ImageView img = new ImageView(this);
         img.setImageResource(R.drawable.ic_launcher);
         img.setPadding(dp(12), dp(12), dp(12), dp(12));
         img.setBackground(bg(surface2(), 10, stroke(), 1));
         loaded.addView(img, new LinearLayout.LayoutParams(dp(72), dp(72)));
+
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(0, -2, 1);
@@ -273,8 +305,9 @@ public class PolishedNodeActivity extends Activity {
         loaded.addView(body, bp);
         body.addView(titleText(selectedNodeId == null ? "Workflow loaded" : nodeTitle(workflow.optJSONObject(selectedNodeId)), 15));
         body.addView(mutedText(workflow.length() + " nodes · ready to edit", 12));
-        loaded.addView(actionButton("Change", false, this::showGraph), new LinearLayout.LayoutParams(dp(82), dp(42)));
+        loaded.addView(actionButton("Change", false, this::showTemplatesTab), new LinearLayout.LayoutParams(dp(82), dp(42)));
         content.addView(loaded, sectionParams());
+
         renderSelectedEditor();
         renderGenerateCard();
     }
@@ -323,6 +356,25 @@ public class PolishedNodeActivity extends Activity {
     private void renderRun() {
         content.addView(statusChip("●  Idle • Ready to run", "›", this::toggleTopPanel), sectionParams());
         content.addView(pageHeader("Run", "Execute and review results."));
+
+        LinearLayout loaded = card(false);
+        loaded.setOrientation(LinearLayout.HORIZONTAL);
+        loaded.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView thumb = new ImageView(this);
+        thumb.setImageResource(R.drawable.ic_launcher);
+        thumb.setPadding(dp(12), dp(12), dp(12), dp(12));
+        thumb.setBackground(bg(surface2(), 10, stroke(), 1));
+        loaded.addView(thumb, new LinearLayout.LayoutParams(dp(72), dp(72)));
+        LinearLayout lt = new LinearLayout(this);
+        lt.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout.LayoutParams ltp = new LinearLayout.LayoutParams(0, -2, 1);
+        ltp.setMargins(dp(12), 0, dp(8), 0);
+        loaded.addView(lt, ltp);
+        lt.addView(titleText(workflow == null ? "No workflow loaded" : "Workflow loaded", 14));
+        lt.addView(mutedText(workflow == null ? "Choose a template or import JSON" : "Ready to execute", 12));
+        loaded.addView(actionButton("Change", false, this::showTemplatesTab), new LinearLayout.LayoutParams(dp(82), dp(42)));
+        content.addView(loaded, sectionParams());
+
         LinearLayout preview = card(false);
         preview.setGravity(Gravity.CENTER);
         ImageView img = new ImageView(this);
@@ -330,6 +382,7 @@ public class PolishedNodeActivity extends Activity {
         img.setPadding(dp(46), dp(46), dp(46), dp(46));
         preview.addView(img, new LinearLayout.LayoutParams(-1, dp(240)));
         content.addView(preview, sectionParams());
+
         LinearLayout ready = card(false);
         ready.setOrientation(LinearLayout.HORIZONTAL);
         ready.setGravity(Gravity.CENTER_VERTICAL);
@@ -343,16 +396,20 @@ public class PolishedNodeActivity extends Activity {
         rt.addView(mutedText(workflow == null ? "Import or choose a template first" : "All local checks passed", 12));
         ready.addView(actionButton("Validate", true, () -> toast(workflow == null ? "No workflow" : "Looks valid")), new LinearLayout.LayoutParams(dp(92), dp(42)));
         content.addView(ready, sectionParams());
+
         LinearLayout metrics = row();
         metrics.addView(metric("Nodes", workflow == null ? "0" : String.valueOf(workflow.length())), weight(dp(58)));
         metrics.addView(metric("Models", "—"), weight(dp(58)));
         metrics.addView(metric("Steps", "—"), weight(dp(58)));
         metrics.addView(metric("Last", lastGenerationDurationMs > 0 ? fmtMs(lastGenerationDurationMs) : "—"), weight(dp(58)));
         content.addView(metrics, sectionParams());
+
         LinearLayout actions = row();
         actions.addView(actionButton("Queue Prompt", false, () -> toast("Queue uses Run")), weight(dp(54)));
         actions.addView(actionButton("Run  ▷", true, this::runWorkflow), weight(dp(54)));
         content.addView(actions, sectionParams());
+
+        content.addView(titleText("Recent Output", 16));
     }
 
     private void renderNodes() {
@@ -364,8 +421,8 @@ public class PolishedNodeActivity extends Activity {
 
     private View nodeSummaryView(String id, boolean clickable) {
         LinearLayout card = card(false);
-        if (id == null || workflow == null || workflow.optJSONObject(id) == null) { card.addView(titleText("No node selected", 16)); return card; }
-        JSONObject node = workflow.optJSONObject(id);
+        JSONObject node = workflow == null ? null : workflow.optJSONObject(id);
+        if (node == null) { card.addView(titleText("No node selected", 16)); return card; }
         card.addView(titleText(nodeTitle(node), 16));
         card.addView(mutedText("#" + id + " · " + prettify(node.optString("class_type", "Node")), 12));
         LinearLayout chips = row();
@@ -387,7 +444,7 @@ public class PolishedNodeActivity extends Activity {
         boolean multi = key.toLowerCase().contains("prompt") || key.toLowerCase().contains("text") || String.valueOf(value).length() > 80;
         e.setSingleLine(!multi);
         e.setGravity(multi ? Gravity.TOP | Gravity.LEFT : Gravity.CENTER_VERTICAL | Gravity.LEFT);
-        e.setInputType(multi ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) : InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        e.setInputType(multi ? (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS) : (InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS));
         parent.addView(e, new LinearLayout.LayoutParams(-1, multi ? dp(120) : dp(48)));
         fields.add(new ApiField(id, key, e));
     }
@@ -395,15 +452,43 @@ public class PolishedNodeActivity extends Activity {
     private void showCreate() { screen = "create"; showPaneOnly(); render(); setStatus("Create"); }
     private void showNodes() { screen = "nodes"; showPaneOnly(); render(); setStatus("Nodes"); }
     private void showPaneOnly() { pane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); workspace.setVisibility(View.VISIBLE); }
-    private void showGraph() { saveUrl(); pane.setVisibility(View.GONE); output.setVisibility(View.GONE); graph.setVisibility(View.VISIBLE); topPanel.setVisibility(View.GONE); String base = baseUrl(); if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; } String cur = graph.getUrl(); if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base); setStatus("Graph mode. Load workflow, then Import."); applyBars(); }
-    private void showOutput(String url) { topPanel.setVisibility(View.GONE); pane.setVisibility(View.GONE); graph.setVisibility(View.GONE); output.setVisibility(View.VISIBLE); output.loadUrl(url); setStatus("Opening output..."); applyBars(); }
+
+    protected void showTemplatesTab() { showGraph(); }
+
+    private void showGraph() {
+        saveUrl();
+        pane.setVisibility(View.GONE);
+        output.setVisibility(View.GONE);
+        graph.setVisibility(View.VISIBLE);
+        topPanel.setVisibility(View.GONE);
+        String base = baseUrl();
+        if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
+        String cur = graph.getUrl();
+        if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base);
+        setStatus("Graph mode. Load workflow, then Import.");
+        applyBars();
+    }
+
+    private void showOutput(String url) {
+        topPanel.setVisibility(View.GONE);
+        pane.setVisibility(View.GONE);
+        graph.setVisibility(View.GONE);
+        output.setVisibility(View.VISIBLE);
+        output.loadUrl(url);
+        setStatus("Opening output...");
+        applyBars();
+    }
 
     private void importFromGraph() {
         saveUrl();
         String base = baseUrl();
         if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         String cur = graph.getUrl();
-        if (cur == null || !cur.startsWith(base) || cur.contains("/view")) { showGraph(); toast("Graph opened. Load workflow, then press Import again."); return; }
+        if (cur == null || !cur.startsWith(base) || cur.contains("/view")) {
+            showGraph();
+            toast("Graph opened. Load workflow, then press Import again.");
+            return;
+        }
         importing = true;
         busy(true, "Importing workflow from Graph...");
         handler.postDelayed(() -> { if (importing) { importing = false; busy(false, "Import timed out. Try again after graph is loaded."); } }, 15000);
@@ -427,42 +512,154 @@ public class PolishedNodeActivity extends Activity {
             if (p instanceof JSONObject) workflow = cleanWorkflow((JSONObject) p);
             else if (p instanceof String) workflow = cleanWorkflow(new JSONObject((String) p));
             else { busy(false, "Import failed: unsupported prompt format"); return; }
-            fieldOptions = res.optJSONObject("options"); if (fieldOptions == null) fieldOptions = new JSONObject();
-            saveWorkflow(); saveOptions(); selectedNodeId = firstEditableOrFirst(); busy(false, "Imported " + workflow.length() + " nodes."); showCreate();
+            fieldOptions = res.optJSONObject("options");
+            if (fieldOptions == null) fieldOptions = new JSONObject();
+            saveWorkflow();
+            saveOptions();
+            selectedNodeId = firstEditableOrFirst();
+            busy(false, "Imported " + workflow.length() + " nodes.");
+            showCreate();
         } catch (Exception e) { busy(false, "Import failed: " + shortError(e)); }
     }
 
-    private void chooseJson() { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); try { startActivityForResult(Intent.createChooser(i, "Choose workflow JSON"), REQ_JSON); } catch (Exception e) { toast("No file picker available"); } }
-    private void applyJson() { try { workflow = cleanWorkflow(new JSONObject(jsonEditor == null ? "" : jsonEditor.getText().toString())); fieldOptions = new JSONObject(); saveWorkflow(); saveOptions(); selectedNodeId = firstEditableOrFirst(); toast("Workflow loaded"); showCreate(); } catch (JSONException e) { toast("Invalid JSON"); } }
-    private void applyJsonText(String raw) { try { workflow = cleanWorkflow(new JSONObject(raw)); fieldOptions = new JSONObject(); saveWorkflow(); saveOptions(); selectedNodeId = firstEditableOrFirst(); toast("Workflow loaded"); showCreate(); } catch (JSONException e) { toast("Invalid JSON file"); } }
+    private void chooseJson() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try { startActivityForResult(Intent.createChooser(i, "Choose workflow JSON"), REQ_JSON); }
+        catch (Exception e) { toast("No file picker available"); }
+    }
+
+    private void applyJson() {
+        try {
+            workflow = cleanWorkflow(new JSONObject(jsonEditor == null ? "" : jsonEditor.getText().toString()));
+            fieldOptions = new JSONObject();
+            saveWorkflow();
+            saveOptions();
+            selectedNodeId = firstEditableOrFirst();
+            toast("Workflow loaded");
+            showCreate();
+        } catch (JSONException e) { toast("Invalid JSON"); }
+    }
+
+    private void applyJsonText(String raw) {
+        try {
+            workflow = cleanWorkflow(new JSONObject(raw));
+            fieldOptions = new JSONObject();
+            saveWorkflow();
+            saveOptions();
+            selectedNodeId = firstEditableOrFirst();
+            toast("Workflow loaded");
+            showCreate();
+        } catch (JSONException e) { toast("Invalid JSON file"); }
+    }
 
     private void runWorkflow() {
         if (workflow == null) { toast("Import a workflow first"); return; }
-        saveUrl(); applyFields(); workflow = cleanWorkflow(workflow); saveWorkflow();
-        String base = baseUrl(); if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
+        saveUrl();
+        applyFields();
+        workflow = cleanWorkflow(workflow);
+        saveWorkflow();
+        String base = baseUrl();
+        if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
         try {
-            JSONObject payload = new JSONObject(); payload.put("prompt", cleanWorkflow(workflow)); payload.put("client_id", "android-remote-" + System.currentTimeMillis());
-            generationRunning = true; generationStartMs = System.currentTimeMillis(); pollCount = 0;
-            screen = "run"; showPaneOnly(); render(); updateGenerationUi(8, "Sending prompt..."); busy(true, "Sending prompt...");
-            new Thread(() -> { try { JSONObject res = new JSONObject(postJson(base + "/prompt", payload.toString())); currentPromptId = res.optString("prompt_id", ""); if (currentPromptId.isEmpty()) throw new IllegalStateException("ComfyUI did not return prompt_id"); handler.post(() -> { busy(false, "Queued. Waiting for output..."); pollHistory(); }); } catch (Exception e) { handler.post(() -> { generationRunning = false; busy(false, "Run failed: " + shortError(e)); updateGenerationUi(0, "Run failed: " + shortError(e)); }); } }).start();
+            JSONObject payload = new JSONObject();
+            payload.put("prompt", cleanWorkflow(workflow));
+            payload.put("client_id", "android-remote-" + System.currentTimeMillis());
+            generationRunning = true;
+            generationStartMs = System.currentTimeMillis();
+            pollCount = 0;
+            screen = "run";
+            showPaneOnly();
+            render();
+            updateGenerationUi(8, "Sending prompt...");
+            busy(true, "Sending prompt...");
+            new Thread(() -> {
+                try {
+                    JSONObject res = new JSONObject(postJson(base + "/prompt", payload.toString()));
+                    currentPromptId = res.optString("prompt_id", "");
+                    if (currentPromptId.isEmpty()) throw new IllegalStateException("ComfyUI did not return prompt_id");
+                    handler.post(() -> { busy(false, "Queued. Waiting for output..."); pollHistory(); });
+                } catch (Exception e) {
+                    handler.post(() -> { generationRunning = false; busy(false, "Run failed: " + shortError(e)); updateGenerationUi(0, "Run failed: " + shortError(e)); });
+                }
+            }).start();
         } catch (JSONException e) { toast("Could not build prompt JSON"); }
     }
 
     private void pollHistory() {
         if (currentPromptId == null || currentPromptId.isEmpty()) return;
         pollCount++;
-        String base = baseUrl(); String pid = currentPromptId;
+        String base = baseUrl();
+        String pid = currentPromptId;
         updateGenerationUi(estimatedProgressPercent(), generationProgressText());
-        new Thread(() -> { try { OutputFile f = findOutput(new JSONObject(getText(base + "/history/" + enc(pid)))); if (f != null) { lastOutputUrl = base + "/view?filename=" + enc(f.filename) + "&type=" + enc(f.type) + "&subfolder=" + enc(f.subfolder); lastGenerationDurationMs = Math.max(1L, System.currentTimeMillis() - generationStartMs); getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_OUTPUT, lastOutputUrl).putLong(KEY_LAST_DURATION, lastGenerationDurationMs).apply(); handler.post(() -> { generationRunning = false; busy(false, "Output ready."); updateGenerationUi(100, "Output ready. Generation took " + fmtMs(lastGenerationDurationMs) + "."); }); return; } } catch (Exception ignored) {} if (pollCount < 240) handler.postDelayed(this::pollHistory, 2000); else handler.post(() -> { generationRunning = false; busy(false, "Timed out waiting for output."); updateGenerationUi(0, "Timed out waiting for output."); }); }).start();
+        new Thread(() -> {
+            try {
+                OutputFile f = findOutput(new JSONObject(getText(base + "/history/" + enc(pid))));
+                if (f != null) {
+                    lastOutputUrl = base + "/view?filename=" + enc(f.filename) + "&type=" + enc(f.type) + "&subfolder=" + enc(f.subfolder);
+                    lastGenerationDurationMs = Math.max(1L, System.currentTimeMillis() - generationStartMs);
+                    getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_OUTPUT, lastOutputUrl).putLong(KEY_LAST_DURATION, lastGenerationDurationMs).apply();
+                    handler.post(() -> { generationRunning = false; busy(false, "Output ready."); updateGenerationUi(100, "Output ready. Generation took " + fmtMs(lastGenerationDurationMs) + "."); });
+                    return;
+                }
+            } catch (Exception ignored) {}
+            if (pollCount < 240) handler.postDelayed(this::pollHistory, 2000);
+            else handler.post(() -> { generationRunning = false; busy(false, "Timed out waiting for output."); updateGenerationUi(0, "Timed out waiting for output."); });
+        }).start();
     }
 
-    private void openOutput() { if (lastOutputUrl != null && !lastOutputUrl.trim().isEmpty()) { showOutput(lastOutputUrl); return; } toast("No output yet"); }
-    private void testConnection() { saveUrl(); String base = baseUrl(); if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; } busy(true, "Testing..."); new Thread(() -> { try { getText(base + "/system_stats"); handler.post(() -> busy(false, "Connection OK.")); } catch (Exception e) { handler.post(() -> busy(false, "Connection failed: " + shortError(e))); } }).start(); }
+    private void openOutput() {
+        if (lastOutputUrl != null && !lastOutputUrl.trim().isEmpty()) { showOutput(lastOutputUrl); return; }
+        toast("No output yet");
+    }
 
-    private JSONObject cleanWorkflow(JSONObject src) { JSONObject out = new JSONObject(); if (src == null) return out; Iterator<String> it = src.keys(); while (it.hasNext()) { String id = it.next(); JSONObject node = src.optJSONObject(id); if (node == null) continue; if (isNonRunnable(node.optString("class_type", node.optString("type", "")))) continue; try { out.put(id, node); } catch (JSONException ignored) {} } return out; }
-    private List<String> visibleNodeIds() { List<String> ids = new ArrayList<>(); if (workflow == null) return ids; Iterator<String> it = workflow.keys(); while (it.hasNext()) { String id = it.next(); JSONObject n = workflow.optJSONObject(id); if (n == null) continue; String cls = n.optString("class_type", "").toLowerCase(); if (!cls.contains("note") && !cls.contains("markdown") && !cls.contains("reroute")) ids.add(id); } return ids; }
+    private void testConnection() {
+        saveUrl();
+        String base = baseUrl();
+        if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; }
+        busy(true, "Testing...");
+        new Thread(() -> {
+            try { getText(base + "/system_stats"); handler.post(() -> busy(false, "Connection OK.")); }
+            catch (Exception e) { handler.post(() -> busy(false, "Connection failed: " + shortError(e))); }
+        }).start();
+    }
+
+    private JSONObject cleanWorkflow(JSONObject src) {
+        JSONObject out = new JSONObject();
+        if (src == null) return out;
+        Iterator<String> it = src.keys();
+        while (it.hasNext()) {
+            String id = it.next();
+            JSONObject node = src.optJSONObject(id);
+            if (node == null) continue;
+            if (isNonRunnable(node.optString("class_type", node.optString("type", "")))) continue;
+            try { out.put(id, node); } catch (JSONException ignored) {}
+        }
+        return out;
+    }
+
+    private List<String> visibleNodeIds() {
+        ArrayList<String> ids = new ArrayList<>();
+        if (workflow == null) return ids;
+        Iterator<String> it = workflow.keys();
+        while (it.hasNext()) {
+            String id = it.next();
+            JSONObject n = workflow.optJSONObject(id);
+            if (n == null) continue;
+            String cls = n.optString("class_type", "").toLowerCase();
+            if (!cls.contains("note") && !cls.contains("markdown") && !cls.contains("reroute")) ids.add(id);
+        }
+        Collections.sort(ids, (a, b) -> {
+            try { return Integer.compare(Integer.parseInt(a), Integer.parseInt(b)); }
+            catch (Exception e) { return a.compareTo(b); }
+        });
+        return ids;
+    }
+
     private String firstEditableOrFirst() { List<String> ids = visibleNodeIds(); return ids.isEmpty() ? null : ids.get(0); }
-    private List<String> inputKeys(JSONObject o) { ArrayList<String> keys = new ArrayList<>(); if (o == null) return keys; Iterator<String> it = o.keys(); while (it.hasNext()) keys.add(it.next()); return keys; }
+    private List<String> inputKeys(JSONObject o) { ArrayList<String> keys = new ArrayList<>(); if (o == null) return keys; Iterator<String> it = o.keys(); while (it.hasNext()) keys.add(it.next()); Collections.sort(keys); return keys; }
     private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
     private int editableCount(String id, JSONObject inputs) { int n = 0; for (String k : inputKeys(inputs)) if (primitive(inputs.opt(k))) n++; return n; }
     private int dropdownCount(String id, JSONObject inputs) { return 0; }
@@ -483,9 +680,11 @@ public class PolishedNodeActivity extends Activity {
     private String getText(String url) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(8000); c.setReadTimeout(20000); int code = c.getResponseCode(); String r = readStream(code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream()); if (code < 200 || code >= 300) throw new IllegalStateException("HTTP " + code + ": " + r); return r; } finally { c.disconnect(); } }
     private String readStream(InputStream in) throws Exception { if (in == null) return ""; try { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); return out.toString("UTF-8"); } finally { in.close(); } }
     private String readText(Uri uri) throws Exception { InputStream in = getContentResolver().openInputStream(uri); if (in == null) throw new IllegalStateException("Could not read selected file"); try { ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); return out.toString("UTF-8"); } finally { in.close(); } }
+
     private OutputFile findOutput(JSONObject history) throws JSONException { OutputFile found = null; Iterator<String> p = history.keys(); while (p.hasNext()) { JSONObject item = history.optJSONObject(p.next()); JSONObject outs = item == null ? null : item.optJSONObject("outputs"); if (outs == null) continue; Iterator<String> nodes = outs.keys(); while (nodes.hasNext()) { JSONObject o = outs.optJSONObject(nodes.next()); if (o == null) continue; OutputFile f = first(o.optJSONArray("videos")); if (f != null) found = f; f = first(o.optJSONArray("gifs")); if (f != null) found = f; f = first(o.optJSONArray("images")); if (f != null) found = f; } } return found; }
     private OutputFile first(JSONArray arr) { if (arr == null || arr.length() == 0) return null; JSONObject f = arr.optJSONObject(0); if (f == null) return null; String name = f.optString("filename", ""); if (name.isEmpty()) return null; return new OutputFile(name, f.optString("subfolder", ""), f.optString("type", "output")); }
     private String enc(String s) { try { return URLEncoder.encode(s == null ? "" : s, "UTF-8"); } catch (Exception e) { return ""; } }
+
     private void updateGenerationUi(int percent, String message) { if (generationBar != null) generationBar.setProgress(Math.max(0, Math.min(100, percent))); if (generationText != null) generationText.setText(message); }
     private void refreshGenerationUi() { if (generationRunning) updateGenerationUi(estimatedProgressPercent(), generationProgressText()); else updateGenerationUi(0, generationIdleText()); }
     private String generationIdleText() { return lastGenerationDurationMs > 0 ? "Ready. Last generation: " + fmtMs(lastGenerationDurationMs) + "." : "Ready."; }
@@ -494,7 +693,7 @@ public class PolishedNodeActivity extends Activity {
     private String fmtMs(long ms) { long sec = Math.max(0L, ms / 1000L), min = sec / 60L, rem = sec % 60L; return min > 0 ? min + "m " + rem + "s" : rem + "s"; }
     private String shortError(Exception e) { if (e == null) return "unknown error"; String s = e.getMessage(); if (s == null || s.trim().isEmpty()) s = e.getClass().getSimpleName(); return s.length() > 220 ? s.substring(0, 220) + "…" : s; }
 
-    private void updateBottomNav() { if (bottomNav == null) return; bottomNav.removeAllViews(); bottomNav.addView(navItem("⊞", "Create", "create".equals(screen), this::showCreate), weight(dp(62))); bottomNav.addView(navItem("⌘", "Nodes", "nodes".equals(screen), this::showNodes), weight(dp(62))); bottomNav.addView(navItem("▦", "Templates", false, this::showGraph), weight(dp(62))); bottomNav.addView(navItem("▷", "Run", "run".equals(screen), () -> { screen = "run"; showPaneOnly(); render(); }), weight(dp(62))); bottomNav.addView(navItem("▧", "Output", false, this::openOutput), weight(dp(62))); }
+    private void updateBottomNav() { bottomNav.removeAllViews(); bottomNav.addView(navItem("⊞", "Create", "create".equals(screen), this::showCreate), weight(dp(62))); bottomNav.addView(navItem("⌘", "Nodes", "nodes".equals(screen), this::showNodes), weight(dp(62))); bottomNav.addView(navItem("▦", "Templates", "templates".equals(screen), this::showTemplatesTab), weight(dp(62))); bottomNav.addView(navItem("▷", "Run", "run".equals(screen), () -> { screen = "run"; showPaneOnly(); render(); }), weight(dp(62))); bottomNav.addView(navItem("▧", "Output", false, this::openOutput), weight(dp(62))); }
     private LinearLayout pageHeader(String title, String subtitle) { LinearLayout wrap = new LinearLayout(this); wrap.setOrientation(LinearLayout.VERTICAL); wrap.setPadding(0, dp(12), 0, dp(16)); wrap.addView(titleText(title, 28)); wrap.addView(mutedText(subtitle, 15)); return wrap; }
     private LinearLayout statusChip(String left, String right, Runnable action) { LinearLayout chip = new LinearLayout(this); chip.setOrientation(LinearLayout.HORIZONTAL); chip.setGravity(Gravity.CENTER_VERTICAL); chip.setPadding(dp(12), 0, dp(12), 0); chip.setBackground(bg(surface(), 12, stroke(), 1)); chip.addView(text(left, 12, muted()), new LinearLayout.LayoutParams(0, -1, 1)); TextView arrow = text(right, 20, muted()); arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL); chip.addView(arrow, new LinearLayout.LayoutParams(dp(24), -1)); chip.setOnClickListener(v -> action.run()); return chip; }
     private LinearLayout card(boolean accentBorder) { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(14), dp(14), dp(14), dp(14)); c.setBackground(bg(surface(), 16, accentBorder ? accent() : stroke(), 1)); return c; }
@@ -509,7 +708,7 @@ public class PolishedNodeActivity extends Activity {
     private LinearLayout row() { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); return r; }
     private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(4), 0, dp(4), 0); return p; }
     private LinearLayout.LayoutParams sectionParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(14)); return p; }
-    private TextView titleText(String s, int sp) { TextView t = text(s, sp, Color.WHITE); t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return t; }
+    private TextView titleText(String s, int sp) { TextView t = text(s, sp, Color.WHITE); t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); t.setMaxLines(2); t.setEllipsize(TextUtils.TruncateAt.END); return t; }
     private TextView label(String s) { TextView t = text(s, 13, Color.rgb(210,210,216)); t.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return t; }
     private TextView mutedText(String s, int sp) { return text(s, sp, muted()); }
     private TextView text(String s, int sp, int color) { TextView t = new TextView(this); t.setText(s); t.setTextSize(sp); t.setTextColor(color); t.setPadding(dp(2), 0, dp(2), dp(4)); return t; }
@@ -528,6 +727,29 @@ public class PolishedNodeActivity extends Activity {
     private int muted() { return Color.rgb(170,170,178); }
     private int accent() { return Color.rgb(218,143,60); }
 
-    @Override protected void onActivityResult(int req, int result, Intent data) { if (req == REQ_WEB_FILE) { if (webFileCallback != null) { webFileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data)); webFileCallback = null; } applyBars(); return; } if (req == REQ_JSON) { if (result == RESULT_OK && data != null && data.getData() != null) { try { applyJsonText(readText(data.getData())); } catch (Exception e) { toast("Could not read JSON"); } } applyBars(); return; } super.onActivityResult(req, result, data); }
-    @Override public void onBackPressed() { if (output.getVisibility() == View.VISIBLE) { showCreate(); return; } if (graph.getVisibility() == View.VISIBLE) { if (graph.canGoBack()) graph.goBack(); else showCreate(); return; } if ("nodes".equals(screen) || "run".equals(screen)) { showCreate(); return; } super.onBackPressed(); }
+    @Override protected void onActivityResult(int req, int result, Intent data) {
+        if (req == REQ_WEB_FILE) {
+            if (webFileCallback != null) {
+                webFileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data));
+                webFileCallback = null;
+            }
+            applyBars();
+            return;
+        }
+        if (req == REQ_JSON) {
+            if (result == RESULT_OK && data != null && data.getData() != null) {
+                try { applyJsonText(readText(data.getData())); } catch (Exception e) { toast("Could not read JSON"); }
+            }
+            applyBars();
+            return;
+        }
+        super.onActivityResult(req, result, data);
+    }
+
+    @Override public void onBackPressed() {
+        if (output.getVisibility() == View.VISIBLE) { showCreate(); return; }
+        if (graph.getVisibility() == View.VISIBLE) { if (graph.canGoBack()) graph.goBack(); else showCreate(); return; }
+        if ("nodes".equals(screen) || "run".equals(screen)) { showCreate(); return; }
+        super.onBackPressed();
+    }
 }
