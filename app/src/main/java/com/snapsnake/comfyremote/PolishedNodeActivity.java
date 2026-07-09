@@ -61,7 +61,7 @@ public class PolishedNodeActivity extends Activity {
     private static final int REQ_JSON = 44;
     private static final int REQ_WEB_FILE = 45;
 
-    private LinearLayout topPanel, content;
+    private LinearLayout topPanel, content, bottomNav;
     private EditText urlInput, jsonEditor;
     private TextView status, generationText;
     private ProgressBar busyBar, generationBar;
@@ -111,51 +111,64 @@ public class PolishedNodeActivity extends Activity {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
         root.setFitsSystemWindows(true);
-        root.setBackgroundColor(Color.rgb(2, 6, 23));
+        root.setBackgroundColor(Color.BLACK);
 
         topPanel = new LinearLayout(this);
         topPanel.setOrientation(LinearLayout.VERTICAL);
-        topPanel.setPadding(dp(12), dp(8), dp(12), dp(8));
-        topPanel.setBackgroundColor(Color.rgb(15, 23, 42));
+        topPanel.setPadding(dp(18), dp(10), dp(18), dp(12));
+        topPanel.setBackgroundColor(Color.rgb(9, 15, 28));
         root.addView(topPanel, new LinearLayout.LayoutParams(-1, -2));
-        topPanel.addView(text("ComfyUI Remote", 18, Color.WHITE));
+
+        TextView appTitle = text("ComfyUI Mobile", 20, Color.WHITE);
+        appTitle.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        topPanel.addView(appTitle);
 
         urlInput = new EditText(this);
-        soft(urlInput, 14);
+        soft(urlInput, 15);
         urlInput.setSingleLine(true);
         urlInput.setTextColor(Color.WHITE);
-        urlInput.setHintTextColor(Color.rgb(148, 163, 184));
+        urlInput.setHintTextColor(Color.rgb(150, 150, 160));
         urlInput.setHint("http://desktop-name.tailnet.ts.net:8188");
-        urlInput.setPadding(dp(12), 0, dp(12), 0);
-        urlInput.setBackground(bg(Color.rgb(30, 41, 59), dp(12), Color.rgb(71, 85, 105), 1));
-        topPanel.addView(urlInput, new LinearLayout.LayoutParams(-1, dp(46)));
+        urlInput.setPadding(dp(16), 0, dp(16), 0);
+        urlInput.setBackground(bg(Color.rgb(1, 5, 14), dp(18), Color.rgb(45, 54, 74), 1));
+        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1, dp(50));
+        up.setMargins(0, dp(8), 0, dp(8));
+        topPanel.addView(urlInput, up);
 
-        LinearLayout topRow = row();
+        LinearLayout topRow = row(false);
         topPanel.addView(topRow);
         addTopButton(topRow, "Test", this::testConnection);
         addTopButton(topRow, "Create", this::showCreate);
         addTopButton(topRow, "Nodes", this::showNodes);
         addTopButton(topRow, "Import", this::importFromGraph);
 
+        TextView cf = muted("Cloudflare Access is optional. Fill it only if Access protection is enabled.");
+        cf.setPadding(dp(2), dp(6), dp(2), dp(4));
+        topPanel.addView(cf);
+
         busyBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         busyBar.setMax(100);
         busyBar.setVisibility(View.GONE);
         root.addView(busyBar, new LinearLayout.LayoutParams(-1, dp(3)));
 
-        status = text("URL panel hidden. Tap here to show it.", 12, Color.rgb(203, 213, 225));
-        status.setPadding(dp(12), dp(7), dp(12), dp(7));
-        status.setBackgroundColor(Color.rgb(15, 23, 42));
+        status = text("URL panel hidden. Tap here to show it.", 13, Color.rgb(185, 190, 205));
+        status.setSingleLine(false);
+        status.setPadding(dp(18), dp(9), dp(18), dp(9));
+        status.setBackgroundColor(Color.rgb(9, 15, 28));
         status.setOnClickListener(v -> toggleTopPanel());
         root.addView(status, new LinearLayout.LayoutParams(-1, -2));
 
         workspace = new FrameLayout(this);
+        workspace.setBackgroundColor(Color.BLACK);
         root.addView(workspace, new LinearLayout.LayoutParams(-1, 0, 1));
+
         pane = new ScrollView(this);
-        pane.setVerticalScrollBarEnabled(true);
-        pane.setScrollbarFadingEnabled(false);
+        pane.setVerticalScrollBarEnabled(false);
+        pane.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        pane.setBackgroundColor(Color.BLACK);
         content = new LinearLayout(this);
         content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(dp(14), dp(14), dp(14), dp(88));
+        content.setPadding(dp(28), dp(24), dp(28), dp(90));
         pane.addView(content, new ScrollView.LayoutParams(-1, -2));
         workspace.addView(pane, new FrameLayout.LayoutParams(-1, -1));
 
@@ -166,17 +179,18 @@ public class PolishedNodeActivity extends Activity {
         output.setVisibility(View.GONE);
         workspace.addView(output, new FrameLayout.LayoutParams(-1, -1));
 
-        LinearLayout bottom = new LinearLayout(this);
-        bottom.setOrientation(LinearLayout.HORIZONTAL);
-        bottom.setGravity(Gravity.CENTER);
-        bottom.setPadding(dp(8), dp(8), dp(8), dp(8));
-        bottom.setBackgroundColor(Color.rgb(15, 23, 42));
-        root.addView(bottom, new LinearLayout.LayoutParams(-1, dp(72)));
-        addToolButton(bottom, "Create", this::showCreate);
-        addToolButton(bottom, "Nodes", this::showNodes);
-        addToolButton(bottom, "Graph", this::showGraph);
-        addToolButton(bottom, "Run", this::runWorkflow);
-        addToolButton(bottom, "Output", this::openOutput);
+        bottomNav = new LinearLayout(this);
+        bottomNav.setOrientation(LinearLayout.HORIZONTAL);
+        bottomNav.setGravity(Gravity.CENTER);
+        bottomNav.setPadding(dp(10), dp(8), dp(10), dp(8));
+        bottomNav.setBackgroundColor(Color.BLACK);
+        root.addView(bottomNav, new LinearLayout.LayoutParams(-1, dp(72)));
+        addToolButton(bottomNav, "Create", this::showCreate);
+        addToolButton(bottomNav, "Nodes", this::showNodes);
+        addToolButton(bottomNav, "Templates", this::showGraph);
+        addToolButton(bottomNav, "Run", this::runWorkflow);
+        addToolButton(bottomNav, "Out", this::openOutput);
+
         setContentView(root);
     }
 
@@ -222,6 +236,7 @@ public class PolishedNodeActivity extends Activity {
         s.setBuiltInZoomControls(true); s.setDisplayZoomControls(false); s.setSupportZoom(true); s.setTextZoom(100);
         s.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         w.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        w.setBackgroundColor(Color.BLACK);
     }
 
     private void render() {
@@ -231,49 +246,64 @@ public class PolishedNodeActivity extends Activity {
         if ("nodes".equals(screen)) renderNodes(); else renderCreate();
     }
 
+    private void pageHeader(String title, String subtitle) {
+        TextView h = text(title, 30, Color.WHITE);
+        h.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        content.addView(h);
+        if (subtitle != null && !subtitle.trim().isEmpty()) {
+            TextView s = muted(subtitle);
+            s.setTextSize(17);
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
+            sp.setMargins(0, 0, 0, dp(18));
+            content.addView(s, sp);
+        }
+    }
+
     private void renderNoWorkflow() {
-        content.addView(text("Create", 26, Color.WHITE));
-        content.addView(muted("Open Graph, load workflow, then Import."));
-        LinearLayout c = card(); content.addView(c, cardParams());
-        c.addView(header("Workflow"));
-        LinearLayout r1 = row(); c.addView(r1);
-        addCardButton(r1, "Open Graph", false, this::showGraph);
+        pageHeader("Create", "Open Graph, load workflow, then Import.");
+        sectionTitle("Workflow");
+        LinearLayout r1 = row(true);
+        content.addView(r1, new LinearLayout.LayoutParams(-1, dp(54)));
+        addCardButton(r1, "Templates", false, this::showGraph);
         addCardButton(r1, "Import", true, this::importFromGraph);
+
         jsonEditor = new EditText(this);
-        soft(jsonEditor, 13);
+        soft(jsonEditor, 15);
         jsonEditor.setTextColor(Color.WHITE);
-        jsonEditor.setHintTextColor(Color.rgb(148, 163, 184));
+        jsonEditor.setHintTextColor(Color.rgb(150, 150, 160));
         jsonEditor.setHint("Fallback: paste API workflow JSON");
         jsonEditor.setGravity(Gravity.TOP | Gravity.LEFT);
-        jsonEditor.setMinLines(4);
+        jsonEditor.setMinLines(5);
         jsonEditor.setMaxLines(8);
         jsonEditor.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
-        jsonEditor.setPadding(dp(12), dp(10), dp(12), dp(10));
-        jsonEditor.setBackground(bg(Color.rgb(15, 23, 42), dp(14), Color.rgb(51, 65, 85), 1));
-        LinearLayout.LayoutParams jp = new LinearLayout.LayoutParams(-1, dp(130));
-        jp.setMargins(0, dp(10), 0, dp(10));
-        c.addView(jsonEditor, jp);
-        LinearLayout r2 = row(); c.addView(r2);
+        jsonEditor.setPadding(dp(16), dp(12), dp(16), dp(12));
+        jsonEditor.setBackground(bg(Color.rgb(1, 5, 14), dp(18), Color.rgb(45, 54, 74), 1));
+        LinearLayout.LayoutParams jp = new LinearLayout.LayoutParams(-1, dp(150));
+        jp.setMargins(0, dp(18), 0, dp(18));
+        content.addView(jsonEditor, jp);
+
+        LinearLayout r2 = row(true);
+        content.addView(r2, new LinearLayout.LayoutParams(-1, dp(54)));
         addCardButton(r2, "Load JSON", false, this::chooseJson);
         addCardButton(r2, "Apply JSON", true, this::applyJson);
     }
 
     private void renderCreate() {
         if (selectedNodeId == null || !visibleNodeIds().contains(selectedNodeId)) selectedNodeId = firstEditableOrFirst();
-        content.addView(text("Create", 26, Color.WHITE));
-        content.addView(muted(workflow.length() + " nodes. Pick a node card; edit only that node here."));
+        pageHeader("Create", workflow.length() + " nodes. Edit the selected node, then run.");
         nodePickerCard();
         selectedEditorCard();
         generateCard();
     }
 
     private void nodePickerCard() {
-        LinearLayout c = card(); content.addView(c, cardParams());
-        c.addView(header("Selected node"));
-        c.addView(nodeSummaryView(selectedNodeId, false));
-        LinearLayout r = row(); c.addView(r);
+        sectionTitle("Selected node");
+        content.addView(nodeSummaryView(selectedNodeId, false));
+        LinearLayout r = row(true);
+        content.addView(r, new LinearLayout.LayoutParams(-1, dp(52)));
         addCardButton(r, "Choose node", true, this::showNodes);
         addCardButton(r, "Import again", false, this::importFromGraph);
+        spacer(18);
     }
 
     private void selectedEditorCard() {
@@ -282,38 +312,35 @@ public class PolishedNodeActivity extends Activity {
         if (node == null) return;
         JSONObject inputs = node.optJSONObject("inputs");
         String cls = node.optString("class_type", "Node");
-        LinearLayout c = cardAccent(); content.addView(c, cardParams());
-        c.addView(header(nodeTitle(node)));
-        c.addView(muted("#" + selectedNodeId + " · " + prettify(cls)));
-        if (isLoadImage(cls)) addImageControl(c, selectedNodeId, inputs);
+        sectionTitle(nodeTitle(node));
+        content.addView(muted("#" + selectedNodeId + " · " + prettify(cls)));
+        if (isLoadImage(cls)) addImageControl(content, selectedNodeId, inputs);
         boolean added = false;
         for (String key : inputKeys(inputs)) {
             Object value = inputs.opt(key);
             if (!primitive(value)) continue;
             if (isLoadImage(cls) && key.equals(imageKey(inputs))) continue;
-            addField(c, selectedNodeId, key, value, fieldTitle(key));
+            addField(content, selectedNodeId, key, value, fieldTitle(key));
             added = true;
         }
-        boolean linked = addLinkedInputs(c, inputs);
-        if (!added && !linked) c.addView(muted("No local editable fields. Tap a linked input or choose another node."));
+        boolean linked = addLinkedInputs(content, inputs);
+        if (!added && !linked) content.addView(muted("No local editable fields. Tap a linked input or choose another node."));
+        spacer(16);
     }
 
     private void renderNodes() {
-        content.addView(text("Nodes", 26, Color.WHITE));
-        content.addView(muted("Tap a card to open that node in Create."));
-        LinearLayout c = card(); content.addView(c, cardParams());
+        pageHeader("Nodes", "Tap a row to edit that node in Create.");
         List<String> ids = visibleNodeIds();
-        for (String id : ids) c.addView(nodeSummaryView(id, true));
+        for (String id : ids) content.addView(nodeSummaryView(id, true));
     }
 
     private View nodeSummaryView(String id, boolean clickable) {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(14), dp(12), dp(14), dp(12));
-        boolean selected = id != null && id.equals(selectedNodeId);
-        box.setBackground(bg(selected ? Color.rgb(30, 64, 125) : Color.rgb(15, 23, 42), dp(18), selected ? Color.rgb(96, 165, 250) : Color.rgb(51, 65, 85), selected ? 2 : 1));
+        box.setPadding(0, dp(12), 0, dp(12));
+        box.setBackgroundColor(Color.TRANSPARENT);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2);
-        bp.setMargins(0, 0, 0, dp(10));
+        bp.setMargins(0, 0, 0, dp(8));
         box.setLayoutParams(bp);
         if (id == null || workflow == null || workflow.optJSONObject(id) == null) {
             box.addView(header("No node selected"));
@@ -321,11 +348,11 @@ public class PolishedNodeActivity extends Activity {
         }
         JSONObject node = workflow.optJSONObject(id);
         JSONObject inputs = node.optJSONObject("inputs");
-        TextView title = text(nodeTitle(node), 17, Color.WHITE);
+        TextView title = text(nodeTitle(node), 18, Color.WHITE);
         title.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         box.addView(title);
         box.addView(muted("#" + id + " · " + prettify(node.optString("class_type", "Node"))));
-        LinearLayout chips = row();
+        LinearLayout chips = row(true);
         chips.setPadding(0, dp(4), 0, 0);
         box.addView(chips);
         addChip(chips, editableCount(id, inputs) + " fields");
@@ -339,11 +366,9 @@ public class PolishedNodeActivity extends Activity {
         TextView chip = text(shorten(value, 28), 12, Color.rgb(226, 232, 240));
         chip.setSingleLine(true);
         chip.setGravity(Gravity.CENTER);
-        chip.setPadding(dp(10), dp(5), dp(10), dp(5));
-        chip.setBackground(bg(Color.rgb(30, 41, 59), dp(14), Color.rgb(71, 85, 105), 1));
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, dp(34), 1);
-        p.setMargins(0, 0, dp(6), 0);
-        r.addView(chip, p);
+        chip.setPadding(dp(9), dp(5), dp(9), dp(5));
+        chip.setBackground(bg(Color.rgb(13, 18, 31), dp(14), Color.rgb(45, 54, 74), 1));
+        r.addView(chip, weight(dp(30)));
     }
 
     private boolean addLinkedInputs(LinearLayout c, JSONObject inputs) {
@@ -356,12 +381,12 @@ public class PolishedNodeActivity extends Activity {
             if (ref.isEmpty() || workflow == null || !workflow.has(ref)) continue;
             JSONObject src = workflow.optJSONObject(ref);
             if (!linked) { c.addView(sectionLabel("Linked inputs")); linked = true; }
-            Button jump = button(key + "  ←  #" + ref + " " + shorten(nodeTitle(src), 28), Color.rgb(51, 65, 85), 14, 14);
+            Button jump = button(key + "  ←  #" + ref + " " + shorten(nodeTitle(src), 28), Color.rgb(6, 10, 22), 14, 16);
             jump.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             jump.setPadding(dp(14), 0, dp(14), 0);
             jump.setOnClickListener(v -> { applyFields(); saveWorkflow(); selectedNodeId = ref; showCreate(); });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(56));
-            p.setMargins(0, 0, 0, dp(10));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(50));
+            p.setMargins(0, 0, 0, dp(8));
             c.addView(jump, p);
         }
         return linked;
@@ -371,9 +396,9 @@ public class PolishedNodeActivity extends Activity {
         String key = imageKey(inputs);
         LinearLayout box = fieldBox();
         box.addView(fieldName("Image · " + key));
-        Button choose = button("Choose image from phone", Color.rgb(37, 99, 235), 15, 14);
+        Button choose = button("Choose image from phone", Color.rgb(10, 20, 48), 14, 16);
         choose.setOnClickListener(v -> chooseImage(id, key));
-        box.addView(choose, new LinearLayout.LayoutParams(-1, dp(58)));
+        box.addView(choose, new LinearLayout.LayoutParams(-1, dp(50)));
         Object current = inputs == null ? null : inputs.opt(key);
         if (current instanceof String && !String.valueOf(current).trim().isEmpty()) box.addView(muted("Current: " + shorten(String.valueOf(current), 80)));
         c.addView(box, fieldBoxParams());
@@ -384,21 +409,21 @@ public class PolishedNodeActivity extends Activity {
         box.addView(fieldName(title));
         JSONArray opts = optionValues(id, key, value);
         if (opts != null && opts.length() > 0) {
-            Button b = button(String.valueOf(value) + "  ▼", Color.rgb(15, 23, 42), 16, 14);
+            Button b = button(String.valueOf(value) + "  ▼", Color.rgb(1, 5, 14), 15, 16);
             b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             b.setPadding(dp(14), 0, dp(14), 0);
             b.setOnClickListener(v -> showOptionsPicker(id, key, opts));
-            box.addView(b, new LinearLayout.LayoutParams(-1, dp(58)));
+            box.addView(b, new LinearLayout.LayoutParams(-1, dp(50)));
             c.addView(box, fieldBoxParams());
             return;
         }
         EditText e = new EditText(this);
-        soft(e, 16);
+        soft(e, 15);
         e.setText(value == JSONObject.NULL ? "" : String.valueOf(value));
         e.setTextColor(Color.WHITE);
-        e.setHintTextColor(Color.rgb(148, 163, 184));
+        e.setHintTextColor(Color.rgb(150, 150, 160));
         e.setPadding(dp(14), 0, dp(14), 0);
-        e.setBackground(bg(Color.rgb(15, 23, 42), dp(14), Color.rgb(30, 41, 59), 1));
+        e.setBackground(bg(Color.rgb(1, 5, 14), dp(16), Color.rgb(45, 54, 74), 1));
         boolean multi = key.toLowerCase().contains("prompt") || key.toLowerCase().contains("text") || String.valueOf(value).length() > 80;
         e.setSingleLine(!multi);
         if (multi) {
@@ -411,7 +436,7 @@ public class PolishedNodeActivity extends Activity {
         } else {
             e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         }
-        box.addView(e, new LinearLayout.LayoutParams(-1, multi ? dp(126) : dp(56)));
+        box.addView(e, new LinearLayout.LayoutParams(-1, multi ? dp(118) : dp(50)));
         c.addView(box, fieldBoxParams());
         fields.add(new ApiField(id, key, e));
     }
@@ -419,30 +444,30 @@ public class PolishedNodeActivity extends Activity {
     private LinearLayout fieldBox() {
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
-        box.setPadding(dp(10), dp(10), dp(10), dp(10));
-        box.setBackground(bg(Color.rgb(17, 24, 39), dp(18), Color.rgb(51, 65, 85), 1));
+        box.setPadding(0, dp(8), 0, dp(2));
+        box.setBackgroundColor(Color.TRANSPARENT);
         return box;
     }
     private LinearLayout.LayoutParams fieldBoxParams() {
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
-        p.setMargins(0, dp(10), 0, 0);
+        p.setMargins(0, dp(8), 0, 0);
         return p;
     }
 
     private void showOptionsPicker(String node, String key, JSONArray opts) {
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(14), dp(14), dp(14), dp(14));
-        root.setBackground(bg(Color.rgb(17, 24, 39), dp(22), Color.rgb(71, 85, 105), 1));
+        root.setPadding(dp(16), dp(16), dp(16), dp(16));
+        root.setBackground(bg(Color.rgb(7, 11, 20), dp(22), Color.rgb(45, 54, 74), 1));
         root.addView(header(human(key)));
         AlertDialog dialog = new AlertDialog.Builder(this).create();
         for (int i = 0; i < opts.length(); i++) {
             String item = opts.optString(i, "");
-            Button b = button(item, Color.rgb(31, 41, 55), 16, 14);
+            Button b = button(item, Color.rgb(13, 18, 31), 15, 14);
             b.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL);
             b.setPadding(dp(14), 0, dp(14), 0);
             b.setOnClickListener(v -> { setInput(node, key, coerce(item)); saveWorkflow(); dialog.dismiss(); render(); });
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(56));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(50));
             p.setMargins(0, dp(8), 0, 0);
             root.addView(b, p);
         }
@@ -452,26 +477,26 @@ public class PolishedNodeActivity extends Activity {
     }
 
     private void generateCard() {
-        LinearLayout c = card(); content.addView(c, cardParams());
-        c.addView(header("Generate"));
-        LinearLayout r = row(); c.addView(r);
+        sectionTitle("Generate");
+        LinearLayout r = row(true);
+        content.addView(r, new LinearLayout.LayoutParams(-1, dp(52)));
         addCardButton(r, "Apply", false, () -> { applyFields(); saveWorkflow(); toast("Applied"); render(); });
         addCardButton(r, "Run", true, this::runWorkflow);
-        Button out = button("Open latest output", Color.rgb(51, 65, 85), 15, 14);
+        Button out = button("Open latest output", Color.rgb(6, 10, 22), 14, 16);
         out.setOnClickListener(v -> openOutput());
-        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1, dp(52));
-        op.setMargins(dp(3), dp(10), dp(3), dp(8));
-        c.addView(out, op);
+        LinearLayout.LayoutParams op = new LinearLayout.LayoutParams(-1, dp(50));
+        op.setMargins(0, dp(12), 0, dp(8));
+        content.addView(out, op);
         generationText = muted(generationRunning ? "Generation running..." : generationIdleText());
-        c.addView(generationText);
+        content.addView(generationText);
         generationBar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         generationBar.setMax(100);
-        c.addView(generationBar, new LinearLayout.LayoutParams(-1, dp(10)));
+        content.addView(generationBar, new LinearLayout.LayoutParams(-1, dp(8)));
         refreshGenerationUi();
     }
 
-    private void showCreate() { screen = "create"; pane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); render(); status.setText("Create screen. Tap this line to show/hide URL panel."); applyBars(); }
-    private void showNodes() { screen = "nodes"; pane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); render(); status.setText("Nodes screen. Tap this line to show/hide URL panel."); applyBars(); }
+    private void showCreate() { screen = "create"; pane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); render(); status.setText("Create. Tap to show URL panel."); applyBars(); }
+    private void showNodes() { screen = "nodes"; pane.setVisibility(View.VISIBLE); graph.setVisibility(View.GONE); output.setVisibility(View.GONE); render(); status.setText("Nodes. Tap to show URL panel."); applyBars(); }
     private void showGraph() { saveUrl(); pane.setVisibility(View.GONE); output.setVisibility(View.GONE); graph.setVisibility(View.VISIBLE); topPanel.setVisibility(View.GONE); String base = baseUrl(); if (base.isEmpty()) { toast("Enter ComfyUI URL first"); return; } String cur = graph.getUrl(); if (cur == null || !cur.startsWith(base) || cur.contains("/view")) graph.loadUrl(base); status.setText("Graph mode. Load workflow, wait until visible, then Import."); applyBars(); }
     private void showOutput(String url) { topPanel.setVisibility(View.GONE); pane.setVisibility(View.GONE); graph.setVisibility(View.GONE); output.setVisibility(View.VISIBLE); output.loadUrl(url); status.setText("Opening output inside the app..."); applyBars(); }
 
@@ -621,27 +646,26 @@ public class PolishedNodeActivity extends Activity {
     private String fmtMs(long ms) { long sec = Math.max(0L, ms / 1000L), min = sec / 60L, rem = sec % 60L; return min > 0 ? min + "m " + rem + "s" : rem + "s"; }
     private String shortError(Exception e) { if (e == null) return "unknown error"; String s = e.getMessage(); if (s == null || s.trim().isEmpty()) s = e.getClass().getSimpleName(); s = s.replace('\n', ' ').replace('\r', ' ').trim(); return s.length() > 260 ? s.substring(0, 260) + "…" : s; }
     private String shorten(String s, int max) { if (s == null) return ""; return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)) + "…"; }
-    private LinearLayout row() { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setPadding(0, dp(8), 0, 0); return r; }
-    private void addTopButton(LinearLayout parent, String label, Runnable action) { Button b = button(label, Color.rgb(51, 65, 85), 14, 14); b.setSingleLine(true); b.setOnClickListener(v -> action.run()); parent.addView(b, weight(dp(46))); }
-    private void addToolButton(LinearLayout parent, String label, Runnable action) { Button b = button(label, Color.rgb(30, 41, 59), 12, 16); b.setSingleLine(true); b.setOnClickListener(v -> action.run()); parent.addView(b, weight(dp(52))); }
-    private void addCardButton(LinearLayout r, String text, boolean primary, Runnable action) { Button b = button(text, primary ? Color.rgb(37, 99, 235) : Color.rgb(51, 65, 85), 15, 14); b.setOnClickListener(v -> action.run()); r.addView(b, weight(dp(54))); }
-    private LinearLayout card() { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(14), dp(14), dp(14), dp(14)); c.setBackground(bg(Color.rgb(30, 41, 59), dp(24), Color.rgb(71, 85, 105), 1)); return c; }
-    private LinearLayout cardAccent() { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(14), dp(14), dp(14), dp(14)); c.setBackground(bg(Color.rgb(24, 41, 65), dp(24), Color.rgb(96, 165, 250), 2)); return c; }
-    private LinearLayout.LayoutParams cardParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(16)); return p; }
-    private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(3), 0, dp(3), 0); return p; }
+    private LinearLayout row(boolean compact) { LinearLayout r = new LinearLayout(this); r.setOrientation(LinearLayout.HORIZONTAL); r.setPadding(0, compact ? 0 : dp(8), 0, 0); return r; }
+    private void spacer(int h) { TextView s = text("", 1, Color.TRANSPARENT); content.addView(s, new LinearLayout.LayoutParams(-1, dp(h))); }
+    private void sectionTitle(String t) { TextView v = header(t); LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, dp(8), 0, dp(8)); content.addView(v, p); }
+    private void addTopButton(LinearLayout parent, String label, Runnable action) { Button b = button(label, Color.rgb(6, 10, 22), 13, 18); b.setSingleLine(true); b.setOnClickListener(v -> action.run()); parent.addView(b, weight(dp(46))); }
+    private void addToolButton(LinearLayout parent, String label, Runnable action) { Button b = button(label, Color.rgb(6, 10, 22), label.length() > 6 ? 10 : 12, 22); b.setSingleLine(true); b.setTextScaleX(label.length() > 6 ? 0.86f : 1f); b.setOnClickListener(v -> action.run()); parent.addView(b, weight(dp(50))); }
+    private void addCardButton(LinearLayout r, String text, boolean primary, Runnable action) { Button b = button(text, primary ? Color.rgb(10, 20, 48) : Color.rgb(6, 10, 22), 14, 18); b.setOnClickListener(v -> action.run()); r.addView(b, weight(dp(52))); }
+    private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(4), 0, dp(4), 0); return p; }
     private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextSize(size); v.setTextColor(color); v.setPadding(dp(2), 0, dp(2), dp(8)); soft(v, size); return v; }
-    private TextView header(String t) { TextView v = text(t, 20, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
-    private TextView sectionLabel(String t) { TextView v = text(t, 14, Color.rgb(219, 234, 254)); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); v.setPadding(dp(10), dp(8), dp(10), dp(8)); v.setBackground(bg(Color.rgb(15, 23, 42), dp(12), Color.rgb(59, 130, 246), 1)); return v; }
+    private TextView header(String t) { TextView v = text(t, 22, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
+    private TextView sectionLabel(String t) { TextView v = text(t, 14, Color.rgb(219, 234, 254)); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); v.setPadding(0, dp(10), 0, dp(8)); return v; }
     private TextView fieldName(String t) { TextView v = text(t, 13, Color.rgb(203, 213, 225)); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); v.setSingleLine(false); return v; }
-    private TextView muted(String t) { return text(t, 14, Color.rgb(148, 163, 184)); }
-    private Button button(String t, int color, int size, int radius) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(false); b.setTextColor(Color.WHITE); b.setTextSize(size); b.setIncludeFontPadding(false); b.setGravity(Gravity.CENTER); b.setPadding(dp(6), 0, dp(6), 0); b.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL)); b.setBackground(bg(color, dp(radius), Color.rgb(71, 85, 105), 1)); return b; }
+    private TextView muted(String t) { return text(t, 14, Color.rgb(150, 150, 160)); }
+    private Button button(String t, int color, int size, int radius) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(false); b.setTextColor(Color.WHITE); b.setTextSize(size); b.setIncludeFontPadding(false); b.setGravity(Gravity.CENTER); b.setPadding(dp(6), 0, dp(6), 0); b.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL)); b.setBackground(bg(color, dp(radius), Color.rgb(45, 54, 74), 1)); return b; }
     private void soft(TextView v, int size) { v.setTextSize(size); v.setTypeface(Typeface.create("sans-serif", Typeface.NORMAL)); v.setIncludeFontPadding(true); if (android.os.Build.VERSION.SDK_INT >= 21) v.setLetterSpacing(0.01f); }
     private GradientDrawable bg(int color, int radius, int strokeColor, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(radius); d.setStroke(dp(strokeDp), strokeColor); return d; }
     private void busy(boolean on, String msg) { busyBar.setVisibility(on ? View.VISIBLE : View.GONE); status.setText(msg); }
     private void toast(String m) { Toast.makeText(this, m, Toast.LENGTH_SHORT).show(); }
     private void toggleTopPanel() { boolean show = topPanel.getVisibility() != View.VISIBLE; topPanel.setVisibility(show ? View.VISIBLE : View.GONE); status.setText(show ? "URL panel shown. Tap here to hide it." : "URL panel hidden. Tap here to show it."); applyBars(); }
     private void injectGraphCss() { graph.evaluateJavascript("(function(){var m=document.querySelector('meta[name=viewport]')||document.createElement('meta');m.name='viewport';m.content='width=device-width,initial-scale=1,minimum-scale=.35,maximum-scale=3,user-scalable=yes';document.head.appendChild(m);})()", null); }
-    private void applyBars() { Window w = getWindow(); w.setStatusBarColor(Color.rgb(2, 6, 23)); w.setNavigationBarColor(Color.rgb(15, 23, 42)); w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE); }
+    private void applyBars() { Window w = getWindow(); w.setStatusBarColor(Color.BLACK); w.setNavigationBarColor(Color.BLACK); w.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE); }
     @Override public void onWindowFocusChanged(boolean hasFocus) { super.onWindowFocusChanged(hasFocus); if (hasFocus) applyBars(); }
     @Override protected void onActivityResult(int req, int result, Intent data) { if (req == REQ_WEB_FILE) { if (webFileCallback != null) { webFileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result, data)); webFileCallback = null; } applyBars(); return; } if (req == REQ_IMAGE) { String n = pendingNode, k = pendingKey; pendingNode = null; pendingKey = null; if (result == RESULT_OK && data != null && data.getData() != null) uploadImage(data.getData(), n, k); else status.setText("Image selection cancelled."); applyBars(); return; } if (req == REQ_JSON) { if (result == RESULT_OK && data != null && data.getData() != null) { try { applyJsonText(readText(data.getData())); } catch (Exception e) { toast("Could not read JSON"); } } applyBars(); return; } super.onActivityResult(req, result, data); }
     @Override public void onBackPressed() { if (output.getVisibility() == View.VISIBLE) { showCreate(); return; } if (graph.getVisibility() == View.VISIBLE) { if (graph.canGoBack()) graph.goBack(); else showCreate(); return; } if ("nodes".equals(screen)) { showCreate(); return; } super.onBackPressed(); }
