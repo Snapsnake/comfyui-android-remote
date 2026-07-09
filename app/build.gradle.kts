@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 41
-        versionName = "0.10.8-comfyui-workflow-compat"
+        versionCode = 42
+        versionName = "0.10.9-subgraph-workflow-import"
     }
 }
