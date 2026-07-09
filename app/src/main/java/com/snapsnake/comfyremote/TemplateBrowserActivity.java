@@ -18,7 +18,6 @@ import android.text.TextWatcher;
 import android.util.Size;
 import android.view.Gravity;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
@@ -66,28 +65,16 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private boolean templateScreen = false;
 
     private static class TemplateItem {
-        String source;
-        String name;
-        String title;
-        String description;
-        String category;
-        String mediaSubtype;
+        String source, name, title, description, category, mediaSubtype;
         boolean valid = true;
-
         String id() { return safe(source).trim() + "/" + safe(name).trim(); }
-
         JSONObject toJson() throws JSONException {
             JSONObject o = new JSONObject();
-            o.put("source", safe(source));
-            o.put("name", safe(name));
-            o.put("title", safe(title));
-            o.put("description", safe(description));
-            o.put("category", safe(category));
-            o.put("mediaSubtype", safe(mediaSubtype));
-            o.put("valid", valid);
+            o.put("source", safe(source)); o.put("name", safe(name)); o.put("title", safe(title));
+            o.put("description", safe(description)); o.put("category", safe(category));
+            o.put("mediaSubtype", safe(mediaSubtype)); o.put("valid", valid);
             return o;
         }
-
         static TemplateItem fromJson(JSONObject o) {
             TemplateItem item = new TemplateItem();
             item.source = o.optString("source", "default");
@@ -99,7 +86,6 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             item.valid = o.optBoolean("valid", true);
             return item;
         }
-
         private static String safe(String s) { return s == null ? "" : s; }
     }
 
@@ -113,16 +99,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         super.onBackPressed();
     }
 
-    @Override protected void showTemplatesTab() {
-        showTemplatesScreen();
-    }
+    @Override protected void showTemplatesTab() { showTemplatesScreen(); }
 
     private void showTemplatesScreen() {
         try {
             templateScreen = true;
             callBaseQuiet("saveUrl");
             setBaseScreen("templates");
-
             View pane = (View) baseField("pane");
             View graph = (View) baseField("graph");
             View output = (View) baseField("output");
@@ -132,18 +115,15 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             if (pane != null) pane.setVisibility(View.VISIBLE);
             if (graph != null) graph.setVisibility(View.GONE);
             if (output != null) output.setVisibility(View.GONE);
-
             content.removeAllViews();
             content.setBackgroundColor(bgRoot());
             content.setPadding(dp(22), dp(18), dp(22), dp(22));
             content.addView(connectionChip(), sectionParams());
             content.addView(pageHeader(), sectionParams());
             content.addView(searchCard(), sectionParams());
-
             templateList = new LinearLayout(this);
             templateList.setOrientation(LinearLayout.VERTICAL);
             content.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
-
             renderBottomNav();
             if (templates.isEmpty()) {
                 loadCachedTemplates();
@@ -153,9 +133,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             renderTemplates();
             setStatus(templates.isEmpty() ? "Templates cache is empty. Tap Refresh." : "Templates loaded from local cache.");
             callBaseQuiet("applyBars");
-        } catch (Exception e) {
-            setStatus("Templates failed: " + shortErr(e));
-        }
+        } catch (Exception e) { setStatus("Templates failed: " + shortErr(e)); }
     }
 
     private void leaveTemplates() {
@@ -204,18 +182,15 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private View searchCard() {
         LinearLayout tools = card(false);
         tools.setPadding(dp(12), dp(12), dp(12), dp(12));
-
         LinearLayout searchBox = new LinearLayout(this);
         searchBox.setOrientation(LinearLayout.HORIZONTAL);
         searchBox.setGravity(Gravity.CENTER_VERTICAL);
         searchBox.setPadding(dp(12), 0, dp(10), 0);
         searchBox.setBackground(bg(surface2(), 10, stroke(), 1));
-        tools.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(48)));
-
+        tools.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(46)));
         TextView icon = muted("⌕", 22);
         icon.setGravity(Gravity.CENTER);
         searchBox.addView(icon, new LinearLayout.LayoutParams(dp(30), -1));
-
         search = new EditText(this);
         search.setSingleLine(true);
         search.setText(filter == null ? "" : filter);
@@ -226,15 +201,13 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         search.setPadding(dp(8), 0, 0, 0);
         search.setBackgroundColor(Color.TRANSPARENT);
         searchBox.addView(search, new LinearLayout.LayoutParams(0, -1, 1));
-
         TextView filterIcon = muted("☷", 18);
         filterIcon.setGravity(Gravity.CENTER);
         searchBox.addView(filterIcon, new LinearLayout.LayoutParams(dp(32), -1));
-
         LinearLayout meta = new LinearLayout(this);
         meta.setOrientation(LinearLayout.HORIZONTAL);
         meta.setPadding(0, dp(8), 0, 0);
-        tools.addView(meta, new LinearLayout.LayoutParams(-1, dp(34)));
+        tools.addView(meta, new LinearLayout.LayoutParams(-1, dp(32)));
         loadedText = muted("", 12);
         loadedText.setSingleLine(true);
         meta.addView(loadedText, new LinearLayout.LayoutParams(0, -1, 1));
@@ -242,32 +215,20 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         updatedText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         updatedText.setSingleLine(true);
         meta.addView(updatedText, new LinearLayout.LayoutParams(0, -1, 1));
-
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(48));
-        ap.setMargins(0, dp(6), 0, dp(6));
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(44));
+        ap.setMargins(0, dp(4), 0, dp(4));
         tools.addView(actions, ap);
-        actions.addView(actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh Templates", true, this::loadTemplates), weight(dp(48)));
-        actions.addView(actionButton("⌫ Clear", false, () -> {
-            filter = "";
-            renderLimit = PAGE_SIZE;
-            if (search != null) search.setText("");
-            renderTemplates();
-        }), weight(dp(48)));
-
+        actions.addView(actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh", true, this::loadTemplates), weight(dp(44)));
+        actions.addView(actionButton("⌫ Clear", false, () -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); }), weight(dp(44)));
         templateStatus = muted("Refresh once to cache templates and previews.", 12);
         templateStatus.setSingleLine(true);
         templateStatus.setEllipsize(TextUtils.TruncateAt.END);
         tools.addView(templateStatus);
-
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                filter = String.valueOf(s == null ? "" : s);
-                renderLimit = PAGE_SIZE;
-                renderTemplates();
-            }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { filter = String.valueOf(s == null ? "" : s); renderLimit = PAGE_SIZE; renderTemplates(); }
             public void afterTextChanged(Editable s) {}
         });
         refreshMeta();
@@ -281,11 +242,11 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             nav.setVisibility(View.VISIBLE);
             nav.removeAllViews();
             nav.setBackgroundColor(surface());
-            nav.addView(navItem("⊞", "Create", false, () -> leaveTemplates()), weight(dp(62)));
-            nav.addView(navItem("⌘", "Nodes", false, () -> { templateScreen = false; callBaseQuiet("showNodes"); }), weight(dp(62)));
-            nav.addView(navItem("▦", "Templates", true, this::showTemplatesScreen), weight(dp(62)));
-            nav.addView(navItem("▷", "Run", false, () -> { templateScreen = false; callBaseQuiet("runWorkflow"); }), weight(dp(62)));
-            nav.addView(navItem("▧", "Output", false, () -> { templateScreen = false; callBaseQuiet("openOutput"); }), weight(dp(62)));
+            nav.addView(navItem("⊞", "Create", false, () -> leaveTemplates()), weight(dp(58)));
+            nav.addView(navItem("⌘", "Nodes", false, () -> { templateScreen = false; callBaseQuiet("showNodes"); }), weight(dp(58)));
+            nav.addView(navItem("▦", "Templates", true, this::showTemplatesScreen), weight(dp(58)));
+            nav.addView(navItem("▷", "Run", false, () -> { templateScreen = false; callBaseQuiet("runWorkflow"); }), weight(dp(58)));
+            nav.addView(navItem("▧", "Output", false, () -> { templateScreen = false; callBaseQuiet("openOutput"); }), weight(dp(58)));
         } catch (Exception ignored) {}
     }
 
@@ -356,13 +317,8 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                         String name = arr.optString(i, "").trim();
                         if (name.isEmpty()) continue;
                         TemplateItem item = new TemplateItem();
-                        item.source = module;
-                        item.name = name;
-                        item.title = name;
-                        item.description = module;
-                        item.category = "Custom templates";
-                        item.mediaSubtype = "";
-                        item.valid = true;
+                        item.source = module; item.name = name; item.title = name; item.description = module;
+                        item.category = "Custom templates"; item.mediaSubtype = ""; item.valid = true;
                         loaded.add(item);
                     }
                 }
@@ -372,19 +328,11 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             ui.post(() -> {
                 refreshing = false;
                 if (!loaded.isEmpty()) {
-                    templates.clear();
-                    templates.addAll(loaded);
-                    lastUpdatedAt = updatedAt;
-                    saveTemplateCards(loaded, updatedAt);
-                    renderLimit = PAGE_SIZE;
-                    refreshMeta();
-                    renderTemplates();
+                    templates.clear(); templates.addAll(loaded); lastUpdatedAt = updatedAt;
+                    saveTemplateCards(loaded, updatedAt); renderLimit = PAGE_SIZE; refreshMeta(); renderTemplates();
                     setStatus("Loaded " + loaded.size() + " templates. Preloading workflow JSON..." + warning);
                     preloadTemplateJsons(base, new ArrayList<>(loaded));
-                } else {
-                    renderTemplates();
-                    setStatus("Refresh failed; kept local cache." + warning);
-                }
+                } else { renderTemplates(); setStatus("Refresh failed; kept local cache." + warning); }
             });
         }).start();
     }
@@ -399,10 +347,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 if (item == null || !item.valid || safe(item.name).trim().isEmpty()) continue;
                 try { String raw = getText(templateJsonUrl(base, item)); writeText(rawTemplateFile(base, item), raw); ok++; }
                 catch (Exception e) { failed++; }
-                if (i % 10 == 0) {
-                    int done = i + 1, count = ok;
-                    ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + "."));
-                }
+                if (i % 10 == 0) { int done = i + 1, count = ok; ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + ".")); }
             }
             int finalOk = ok, finalFailed = failed;
             ui.post(() -> { preloading = false; setStatus("Templates ready. Cached workflows: " + finalOk + (finalFailed > 0 ? ", failed: " + finalFailed + "." : ".")); });
@@ -426,7 +371,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             LinearLayout more = card(false);
             more.setGravity(Gravity.CENTER_HORIZONTAL);
             more.addView(muted("Showing " + shown + " of " + matches.size() + " templates.", 13));
-            more.addView(actionButton("Show more", false, () -> { renderLimit += PAGE_SIZE; renderTemplates(); }), new LinearLayout.LayoutParams(-1, dp(42)));
+            more.addView(actionButton("Show more", false, () -> { renderLimit += PAGE_SIZE; renderTemplates(); }), new LinearLayout.LayoutParams(-1, dp(40)));
             templateList.addView(more, sectionParams());
         }
     }
@@ -435,35 +380,33 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         LinearLayout row = card(false);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(dp(12), dp(12), dp(12), dp(12));
+        row.setPadding(dp(12), dp(12), dp(10), dp(12));
         row.setClickable(true);
         row.setOnClickListener(v -> openTemplate(item));
-
         ImageView img = new ImageView(this);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         img.setImageResource(R.drawable.ic_launcher);
         img.setBackground(bg(surface2(), 8, stroke(), 1));
         img.setTag(item.id());
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(116), dp(92));
-        ip.setMargins(0, 0, dp(14), 0);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(106), dp(82));
+        ip.setMargins(0, 0, dp(12), 0);
         row.addView(img, ip);
-
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(body, new LinearLayout.LayoutParams(0, dp(92), 1));
+        row.addView(body, new LinearLayout.LayoutParams(0, dp(82), 1));
         TextView name = title(displayTitle(item), 16);
         name.setMaxLines(2);
         name.setEllipsize(TextUtils.TruncateAt.END);
         body.addView(name);
         String desc = safe(item.description).trim();
-        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 150), 12);
-        sub.setMaxLines(3);
+        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 130), 12);
+        sub.setMaxLines(2);
         sub.setEllipsize(TextUtils.TruncateAt.END);
         body.addView(sub);
         TextView arrow = muted("›", 28);
         arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(92)));
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(82)));
         loadPreview(img, item);
         return row;
     }
@@ -477,19 +420,16 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 String raw = readText(rawTemplateFile(base, item));
                 if (raw.trim().isEmpty()) { raw = getText(templateJsonUrl(base, item)); writeText(rawTemplateFile(base, item), raw); }
                 JSONObject graph = new JSONObject(raw);
-                JSONObject prompt = extractApiPrompt(graph);
                 JSONObject defs = new JSONObject(getText(base + "/api/object_info"));
+                JSONObject prompt = extractApiPrompt(graph, defs);
                 JSONObject res = new JSONObject();
-                res.put("ok", true);
-                res.put("prompt", prompt);
-                res.put("options", buildOptions(prompt, defs));
-                res.put("mode", "Templates");
+                res.put("ok", true); res.put("prompt", prompt); res.put("options", buildOptions(prompt, defs)); res.put("mode", "Templates");
                 ui.post(() -> importPrompt(res.toString()));
             } catch (Exception e) { ui.post(() -> setStatus("Template open failed: " + shortErr(e))); }
         }).start();
     }
 
-    private JSONObject extractApiPrompt(JSONObject graph) throws JSONException {
+    private JSONObject extractApiPrompt(JSONObject graph, JSONObject defs) throws JSONException {
         JSONObject extra = graph.optJSONObject("extra");
         JSONObject prompt = extra == null ? null : extra.optJSONObject("prompt");
         if (prompt != null && prompt.length() > 0) return prompt;
@@ -498,152 +438,158 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         JSONObject workflow = graph.optJSONObject("workflow");
         if (workflow != null && looksApiPrompt(workflow)) return workflow;
         if (looksApiPrompt(graph)) return graph;
-        throw new JSONException("template has no embedded API prompt");
+        JSONObject converted = convertFrontendWorkflow(graph, defs);
+        if (converted.length() > 0) return converted;
+        throw new JSONException("template has no embedded API prompt and graph conversion failed");
     }
 
-    private boolean looksApiPrompt(JSONObject o) {
-        if (o == null) return false;
-        Iterator<String> it = o.keys();
-        while (it.hasNext()) {
-            JSONObject n = o.optJSONObject(it.next());
-            if (n != null && n.has("class_type")) return true;
+    private JSONObject convertFrontendWorkflow(JSONObject raw, JSONObject defs) throws JSONException {
+        JSONObject wf = frontendWorkflow(raw);
+        JSONArray nodes = wf == null ? null : wf.optJSONArray("nodes");
+        if (nodes == null || nodes.length() == 0) return new JSONObject();
+        Object links = wf.opt("links");
+        JSONObject out = new JSONObject();
+        for (int i = 0; i < nodes.length(); i++) {
+            JSONObject n = nodes.optJSONObject(i);
+            if (n == null) continue;
+            String id = n.optString("id", "");
+            if (id.trim().isEmpty()) continue;
+            String cls = n.optString("type", n.optString("class_type", ""));
+            if (cls.trim().isEmpty()) continue;
+            String low = cls.toLowerCase(Locale.US);
+            if (low.contains("note") || low.contains("markdown") || low.contains("reroute")) continue;
+            JSONObject item = new JSONObject();
+            item.put("class_type", cls);
+            JSONObject inputs = new JSONObject();
+            addLinkedInputs(inputs, n.optJSONArray("inputs"), links);
+            addWidgetObjectInputs(inputs, n.optJSONArray("widgets"));
+            addWidgetValueInputs(inputs, cls, n.optJSONArray("widgets_values"), defs);
+            item.put("inputs", inputs);
+            JSONObject meta = new JSONObject();
+            meta.put("title", n.optString("title", cls));
+            String group = groupForNode(wf, n);
+            if (!group.isEmpty()) meta.put("group", group);
+            item.put("_meta", meta);
+            out.put(id, item);
         }
-        return false;
+        return out;
     }
 
-    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException {
-        JSONObject options = new JSONObject();
-        Iterator<String> ids = prompt.keys();
-        while (ids.hasNext()) {
-            String id = ids.next();
-            JSONObject node = prompt.optJSONObject(id);
-            if (node == null) continue;
-            JSONObject def = defs.optJSONObject(node.optString("class_type", ""));
-            JSONObject input = def == null ? null : def.optJSONObject("input");
-            addOptions(options, id, input == null ? null : input.optJSONObject("required"));
-            addOptions(options, id, input == null ? null : input.optJSONObject("optional"));
-        }
-        return options;
+    private JSONObject frontendWorkflow(JSONObject raw) {
+        if (raw == null) return null;
+        if (raw.optJSONArray("nodes") != null) return raw;
+        JSONObject wf = raw.optJSONObject("workflow");
+        if (wf != null && wf.optJSONArray("nodes") != null) return wf;
+        JSONObject extra = raw.optJSONObject("extra");
+        wf = extra == null ? null : extra.optJSONObject("workflow");
+        if (wf != null && wf.optJSONArray("nodes") != null) return wf;
+        return null;
     }
 
-    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException {
-        if (section == null) return;
-        Iterator<String> it = section.keys();
-        while (it.hasNext()) {
-            String key = it.next();
-            Object raw = section.opt(key);
-            if (raw instanceof JSONArray) {
-                Object first = ((JSONArray) raw).opt(0);
-                if (first instanceof JSONArray) out.put(id + ":" + key, first);
-            }
+    private void addLinkedInputs(JSONObject inputs, JSONArray inArr, Object links) throws JSONException {
+        if (inArr == null) return;
+        for (int i = 0; i < inArr.length(); i++) {
+            JSONObject inp = inArr.optJSONObject(i);
+            if (inp == null) continue;
+            String name = inp.optString("name", "");
+            if (name.isEmpty() || !inp.has("link") || inp.isNull("link")) continue;
+            JSONArray origin = linkOrigin(links, inp.opt("link"));
+            if (origin != null) inputs.put(name, origin);
         }
     }
 
-    private void loadPreview(ImageView img, TemplateItem item) {
-        String base = baseUrl();
-        String tag = item.id();
-        img.setTag(tag);
-        new Thread(() -> {
-            try {
-                for (String ext : previewExtensions(item)) {
-                    File cached = previewFile(base, item, ext);
-                    if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; }
+    private JSONArray linkOrigin(Object links, Object id) throws JSONException {
+        if (links instanceof JSONArray) {
+            JSONArray arr = (JSONArray) links;
+            for (int i = 0; i < arr.length(); i++) {
+                Object raw = arr.opt(i);
+                if (raw instanceof JSONArray) {
+                    JSONArray l = (JSONArray) raw;
+                    if (sameId(l.opt(0), id)) return new JSONArray().put(String.valueOf(l.opt(1))).put(l.optInt(2, 0));
+                } else if (raw instanceof JSONObject) {
+                    JSONObject l = (JSONObject) raw;
+                    if (sameId(l.opt("id"), id)) return new JSONArray().put(String.valueOf(l.opt("origin_id"))).put(l.optInt("origin_slot", 0));
                 }
-                if (base.isEmpty()) return;
-                for (String ext : previewExtensions(item)) {
-                    try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, false), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
-                    try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, true), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
-                }
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
-    private ArrayList<String> previewExtensions(TemplateItem item) {
-        LinkedHashSet<String> exts = new LinkedHashSet<>();
-        String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US);
-        if (!s.isEmpty()) exts.add(s);
-        exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg");
-        return new ArrayList<>(exts);
-    }
-
-    private void showPreviewFile(ImageView img, String tag, File file) {
-        Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92));
-        if (bitmap == null) return;
-        ui.post(() -> {
-            Object current = img.getTag();
-            if (current != null && String.valueOf(current).equals(tag)) img.setImageBitmap(bitmap);
-        });
-    }
-
-    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) {
-        if (file == null || !file.exists() || file.length() <= 0) return null;
-        try {
-            BitmapFactory.Options b = new BitmapFactory.Options();
-            b.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(file.getAbsolutePath(), b);
-            if (b.outWidth > 0 && b.outHeight > 0) {
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                o.inSampleSize = sampleSize(b.outWidth, b.outHeight, targetW, targetH);
-                return BitmapFactory.decodeFile(file.getAbsolutePath(), o);
             }
-        } catch (Exception ignored) {}
-        if (Build.VERSION.SDK_INT >= 28) {
-            try {
-                return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file), (decoder, info, src) -> {
-                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
-                    Size s = info.getSize();
-                    int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH);
-                    decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample));
-                });
-            } catch (Exception ignored) {}
         }
         return null;
     }
 
+    private boolean sameId(Object a, Object b) { return String.valueOf(a).equals(String.valueOf(b)); }
+
+    private void addWidgetObjectInputs(JSONObject inputs, JSONArray widgets) throws JSONException {
+        if (widgets == null) return;
+        for (int i = 0; i < widgets.length(); i++) {
+            JSONObject w = widgets.optJSONObject(i);
+            if (w == null) continue;
+            String name = w.optString("name", "");
+            if (name.isEmpty() || "upload".equals(name) || "button".equalsIgnoreCase(w.optString("type", ""))) continue;
+            Object value = w.opt("value");
+            if (primitive(value) && !inputs.has(name)) inputs.put(name, value);
+        }
+    }
+
+    private void addWidgetValueInputs(JSONObject inputs, String cls, JSONArray values, JSONObject defs) throws JSONException {
+        if (values == null || values.length() == 0) return;
+        ArrayList<String> names = inputNamesForClass(cls, defs);
+        int vi = 0;
+        for (String name : names) {
+            if (vi >= values.length()) break;
+            if (inputs.has(name)) continue;
+            Object value = values.opt(vi++);
+            if (primitive(value)) inputs.put(name, value);
+        }
+    }
+
+    private ArrayList<String> inputNamesForClass(String cls, JSONObject defs) {
+        ArrayList<String> names = new ArrayList<>();
+        JSONObject def = defs == null ? null : defs.optJSONObject(cls);
+        JSONObject input = def == null ? null : def.optJSONObject("input");
+        addInputNames(names, input == null ? null : input.optJSONObject("required"));
+        addInputNames(names, input == null ? null : input.optJSONObject("optional"));
+        return names;
+    }
+
+    private void addInputNames(ArrayList<String> names, JSONObject section) {
+        if (section == null) return;
+        Iterator<String> it = section.keys();
+        while (it.hasNext()) names.add(it.next());
+    }
+
+    private String groupForNode(JSONObject wf, JSONObject node) {
+        String direct = node.optString("group", "");
+        if (!direct.trim().isEmpty()) return direct.trim();
+        JSONArray pos = node.optJSONArray("pos");
+        JSONArray groups = wf == null ? null : wf.optJSONArray("groups");
+        if (pos == null || pos.length() < 2 || groups == null) return "";
+        double x = pos.optDouble(0, 0), y = pos.optDouble(1, 0);
+        for (int i = 0; i < groups.length(); i++) {
+            JSONObject g = groups.optJSONObject(i);
+            if (g == null) continue;
+            JSONArray b = g.optJSONArray("bounding");
+            if (b == null) b = g.optJSONArray("_bounding");
+            if (b == null || b.length() < 4) continue;
+            double gx = b.optDouble(0), gy = b.optDouble(1), gw = b.optDouble(2), gh = b.optDouble(3);
+            if (x >= gx && y >= gy && x <= gx + gw && y <= gy + gh) return g.optString("title", g.optString("name", "Group"));
+        }
+        return "";
+    }
+
+    private boolean primitive(Object v) { return v == JSONObject.NULL || v instanceof String || v instanceof Number || v instanceof Boolean; }
+    private boolean looksApiPrompt(JSONObject o) { if (o == null) return false; Iterator<String> it = o.keys(); while (it.hasNext()) { JSONObject n = o.optJSONObject(it.next()); if (n != null && n.has("class_type")) return true; } return false; }
+    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException { JSONObject options = new JSONObject(); Iterator<String> ids = prompt.keys(); while (ids.hasNext()) { String id = ids.next(); JSONObject node = prompt.optJSONObject(id); if (node == null) continue; JSONObject def = defs.optJSONObject(node.optString("class_type", "")); JSONObject input = def == null ? null : def.optJSONObject("input"); addOptions(options, id, input == null ? null : input.optJSONObject("required")); addOptions(options, id, input == null ? null : input.optJSONObject("optional")); } return options; }
+    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException { if (section == null) return; Iterator<String> it = section.keys(); while (it.hasNext()) { String key = it.next(); Object raw = section.opt(key); if (raw instanceof JSONArray) { Object first = ((JSONArray) raw).opt(0); if (first instanceof JSONArray) out.put(id + ":" + key, first); } } }
+
+    private void loadPreview(ImageView img, TemplateItem item) { String base = baseUrl(), tag = item.id(); img.setTag(tag); new Thread(() -> { try { for (String ext : previewExtensions(item)) { File cached = previewFile(base, item, ext); if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; } } if (base.isEmpty()) return; for (String ext : previewExtensions(item)) { try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, false), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {} try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, true), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {} } } catch (Exception ignored) {} }).start(); }
+    private ArrayList<String> previewExtensions(TemplateItem item) { LinkedHashSet<String> exts = new LinkedHashSet<>(); String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US); if (!s.isEmpty()) exts.add(s); exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg"); return new ArrayList<>(exts); }
+    private void showPreviewFile(ImageView img, String tag, File file) { Bitmap bitmap = decodePreviewBitmap(file, dp(106), dp(82)); if (bitmap == null) return; ui.post(() -> { Object current = img.getTag(); if (current != null && String.valueOf(current).equals(tag)) img.setImageBitmap(bitmap); }); }
+    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) { if (file == null || !file.exists() || file.length() <= 0) return null; try { BitmapFactory.Options b = new BitmapFactory.Options(); b.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), b); if (b.outWidth > 0 && b.outHeight > 0) { BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565; o.inSampleSize = sampleSize(b.outWidth, b.outHeight, targetW, targetH); return BitmapFactory.decodeFile(file.getAbsolutePath(), o); } } catch (Exception ignored) {} if (Build.VERSION.SDK_INT >= 28) { try { return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file), (decoder, info, src) -> { decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE); Size s = info.getSize(); int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH); decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample)); }); } catch (Exception ignored) {} } return null; }
     private int sampleSize(int w, int h, int tw, int th) { int sample = 1; while ((w / sample) > tw * 2 || (h / sample) > th * 2) sample *= 2; return Math.max(1, sample); }
     private String templateJsonUrl(String base, TemplateItem item) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + ".json"; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json"; }
     private String previewUrl(String base, TemplateItem item, String ext, boolean fallback) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
     private String getText(String url) throws Exception { return new String(bytes(url, MAX_TEXT_BYTES), "UTF-8"); }
-
-    private byte[] bytes(String url, int maxBytes) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        try {
-            c.setConnectTimeout(10000); c.setReadTimeout(30000);
-            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
-            int code = c.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] b = new byte[8192]; int n, total = 0;
-            while (in != null && (n = in.read(b)) > 0) { total += n; if (total > maxBytes) throw new Exception("response is too large"); out.write(b, 0, n); }
-            if (in != null) in.close();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8"));
-            return out.toByteArray();
-        } finally { c.disconnect(); }
-    }
-
-    private void downloadToFile(String url, File file) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        File tmp = new File(file.getAbsolutePath() + ".tmp");
-        try {
-            c.setConnectTimeout(10000); c.setReadTimeout(45000);
-            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
-            int code = c.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs();
-            FileOutputStream out = new FileOutputStream(tmp);
-            byte[] b = new byte[16384]; int n;
-            while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n);
-            if (in != null) in.close(); out.flush(); out.close();
-            if (file.exists()) file.delete();
-            if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); }
-        } finally {
-            c.disconnect();
-            if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete();
-        }
-    }
-
+    private byte[] bytes(String url, int maxBytes) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(10000); c.setReadTimeout(30000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n, total = 0; while (in != null && (n = in.read(b)) > 0) { total += n; if (total > maxBytes) throw new Exception("response is too large"); out.write(b, 0, n); } if (in != null) in.close(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8")); return out.toByteArray(); } finally { c.disconnect(); } }
+    private void downloadToFile(String url, File file) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); File tmp = new File(file.getAbsolutePath() + ".tmp"); try { c.setConnectTimeout(10000); c.setReadTimeout(45000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code); File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(tmp); byte[] b = new byte[16384]; int n; while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n); if (in != null) in.close(); out.flush(); out.close(); if (file.exists()) file.delete(); if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); } } finally { c.disconnect(); if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete(); } }
     private File cacheDir(String child) { File dir = new File(getFilesDir(), "template_cache/" + child); if (!dir.exists()) dir.mkdirs(); return dir; }
     private File rawTemplateFile(String base, TemplateItem item) { return new File(cacheDir("raw"), sha1(base + "|" + item.id()) + ".json"); }
     private File previewFile(String base, TemplateItem item, String ext) { return new File(cacheDir("preview"), sha1(base + "|" + item.id() + "|" + ext) + "." + ext.replaceAll("[^A-Za-z0-9]", "")); }
@@ -651,16 +597,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private byte[] readBytes(File file) { if (file == null || !file.exists() || !file.isFile()) return new byte[0]; ByteArrayOutputStream out = new ByteArrayOutputStream(); try { FileInputStream in = new FileInputStream(file); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); in.close(); return out.toByteArray(); } catch (Exception e) { return new byte[0]; } }
     private void writeText(File file, String text) { try { writeBytes(file, safe(text).getBytes("UTF-8")); } catch (Exception ignored) {} }
     private void writeBytes(File file, byte[] data) { if (file == null || data == null || data.length == 0) return; try { File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(file); out.write(data); out.flush(); out.close(); } catch (Exception ignored) {} }
-
-    private void importPrompt(String resultJson) {
-        try {
-            templateScreen = false;
-            setBaseScreen("create");
-            Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class);
-            m.setAccessible(true);
-            m.invoke(this, resultJson);
-        } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); }
-    }
+    private void importPrompt(String resultJson) { try { templateScreen = false; setBaseScreen("create"); Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class); m.setAccessible(true); m.invoke(this, resultJson); } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); } }
 
     @SuppressWarnings("unchecked") private Map<String, String> accessHeaders() throws Exception { Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders"); m.setAccessible(true); return (Map<String, String>) m.invoke(this); }
     private String baseUrl() { Object x = callBaseQuiet("baseUrl"); return x == null ? "" : String.valueOf(x); }
@@ -668,8 +605,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private Object callBase(String name) throws Exception { Method m = PolishedNodeActivity.class.getDeclaredMethod(name); m.setAccessible(true); return m.invoke(this); }
     private Object callBaseQuiet(String name) { try { return callBase(name); } catch (Exception e) { return null; } }
     private void setBaseScreen(String value) { try { Field f = PolishedNodeActivity.class.getDeclaredField("screen"); f.setAccessible(true); f.set(this, value); } catch (Exception ignored) {} }
-
-    private void refreshMeta() { if (loadedText != null) { loadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " templates"); loadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent()); } if (updatedText != null) updatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet"); }
+    private void refreshMeta() { if (loadedText != null) { loadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " template" + (templates.size() == 1 ? "" : "s")); loadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent()); } if (updatedText != null) updatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet"); }
     private void setStatus(String s) { Object x = null; try { x = baseField("status"); } catch (Exception ignored) {} if (x instanceof TextView) ((TextView) x).setText(s); if (templateStatus != null) templateStatus.setText(s); }
     private String path(String s) { try { return URLEncoder.encode(s == null ? "" : s, "UTF-8").replace("+", "%20").replace("%2F", "/"); } catch (Exception e) { return s == null ? "" : s; } }
     private String safe(String s) { return s == null ? "" : s; }
@@ -681,7 +617,6 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private String joinWarnings(ArrayList<String> warnings) { if (warnings == null || warnings.isEmpty()) return ""; StringBuilder sb = new StringBuilder(" Warning: "); for (int i = 0; i < warnings.size(); i++) { if (i > 0) sb.append("; "); sb.append(warnings.get(i)); } return sb.toString(); }
     private String timeAgo(long ts) { long sec = Math.max(0L, (System.currentTimeMillis() - ts) / 1000L); if (sec < 60) return "just now"; long min = sec / 60L; if (min < 60) return min + "m ago"; long h = min / 60L; if (h < 24) return h + "h ago"; return (h / 24L) + "d ago"; }
     private String sha1(String value) { try { MessageDigest md = MessageDigest.getInstance("SHA-1"); byte[] d = md.digest(safe(value).getBytes("UTF-8")); StringBuilder sb = new StringBuilder(); for (byte b : d) sb.append(String.format(Locale.US, "%02x", b & 0xff)); return sb.toString(); } catch (Exception e) { return String.valueOf(safe(value).hashCode()).replace("-", "n"); } }
-
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
     private int bgRoot() { return Color.rgb(18,18,19); }
@@ -691,12 +626,12 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private int mutedColor() { return Color.rgb(170,170,178); }
     private int accent() { return Color.rgb(218,143,60); }
     private LinearLayout card(boolean accentBorder) { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(12), dp(12), dp(12), dp(12)); c.setBackground(bg(surface(), 16, accentBorder ? accent() : stroke(), 1)); return c; }
-    private LinearLayout.LayoutParams sectionParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(14)); return p; }
+    private LinearLayout.LayoutParams sectionParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(12)); return p; }
     private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(4), 0, dp(4), 0); return p; }
-    private TextView title(String t, int size) { TextView v = text(t, size, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
+    private TextView title(String t, int size) { TextView v = text(t, size, Color.WHITE); v.setTypeface(Typeface.create("sans-serif", Typeface.BOLD)); v.setIncludeFontPadding(false); return v; }
     private TextView muted(String t, int size) { return text(t, size, mutedColor()); }
-    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setPadding(dp(2), 0, dp(2), dp(5)); return v; }
-    private Button actionButton(String t, boolean primary, Runnable action) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(true); b.setTextColor(primary ? accent() : Color.WHITE); b.setTextSize(13); b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); b.setPadding(dp(8), 0, dp(8), 0); b.setBackground(bg(primary ? Color.rgb(44,35,25) : surface2(), 12, primary ? accent() : stroke(), 1)); b.setOnClickListener(v -> action.run()); return b; }
-    private View navItem(String icon, String label, boolean selected, Runnable action) { LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setGravity(Gravity.CENTER); box.setPadding(0, dp(4), 0, dp(4)); box.setBackground(selected ? bg(Color.rgb(37,31,22), 12, accent(), 1) : bg(Color.TRANSPARENT, 12, Color.TRANSPARENT, 0)); TextView i = text(icon, 20, selected ? accent() : mutedColor()); i.setGravity(Gravity.CENTER); box.addView(i, new LinearLayout.LayoutParams(-1, dp(24))); TextView l = text(label, 10, selected ? accent() : mutedColor()); l.setGravity(Gravity.CENTER); l.setSingleLine(true); box.addView(l, new LinearLayout.LayoutParams(-1, dp(20))); box.setOnClickListener(v -> action.run()); return box; }
+    private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setIncludeFontPadding(false); v.setPadding(dp(2), 0, dp(2), dp(5)); return v; }
+    private Button actionButton(String t, boolean primary, Runnable action) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(true); b.setTextColor(primary ? accent() : Color.WHITE); b.setTextSize(13); b.setTypeface(Typeface.create("sans-serif", Typeface.BOLD)); b.setPadding(dp(6), 0, dp(6), 0); b.setBackground(bg(primary ? Color.rgb(44,35,25) : surface2(), 12, primary ? accent() : stroke(), 1)); b.setOnClickListener(v -> action.run()); return b; }
+    private View navItem(String icon, String label, boolean selected, Runnable action) { LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setGravity(Gravity.CENTER); box.setPadding(0, dp(4), 0, dp(4)); box.setBackground(selected ? bg(Color.rgb(37,31,22), 12, accent(), 1) : bg(Color.TRANSPARENT, 12, Color.TRANSPARENT, 0)); TextView i = text(icon, 19, selected ? accent() : mutedColor()); i.setGravity(Gravity.CENTER); box.addView(i, new LinearLayout.LayoutParams(-1, dp(24))); TextView l = text(label, 10, selected ? accent() : mutedColor()); l.setGravity(Gravity.CENTER); l.setSingleLine(true); box.addView(l, new LinearLayout.LayoutParams(-1, dp(20))); box.setOnClickListener(v -> action.run()); return box; }
     private GradientDrawable bg(int color, int radiusDp, int stroke, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radiusDp)); d.setStroke(dp(strokeDp), stroke); return d; }
 }
