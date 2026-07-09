@@ -59,41 +59,25 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private final ArrayList<TemplateItem> templates = new ArrayList<>();
     private LinearLayout templateList;
     private EditText search;
-    private FrameLayout templateOverlay;
-    private TextView templateOverlayStatus;
-    private TextView templateLoadedText;
-    private TextView templateUpdatedText;
+    private TextView templateStatus, loadedText, updatedText;
     private String filter = "";
     private int renderLimit = PAGE_SIZE;
     private long lastUpdatedAt = 0L;
     private boolean refreshing = false;
     private boolean preloading = false;
+    private boolean templateScreen = false;
 
     private static class TemplateItem {
-        String source;
-        String name;
-        String title;
-        String description;
-        String category;
-        String mediaSubtype;
+        String source, name, title, description, category, mediaSubtype;
         boolean valid = true;
-        String error;
-
         String id() { return safe(source).trim() + "/" + safe(name).trim(); }
-
         JSONObject toJson() throws JSONException {
             JSONObject o = new JSONObject();
-            o.put("source", safe(source));
-            o.put("name", safe(name));
-            o.put("title", safe(title));
-            o.put("description", safe(description));
-            o.put("category", safe(category));
-            o.put("mediaSubtype", safe(mediaSubtype));
-            o.put("valid", valid);
-            o.put("error", safe(error));
+            o.put("source", safe(source)); o.put("name", safe(name)); o.put("title", safe(title));
+            o.put("description", safe(description)); o.put("category", safe(category));
+            o.put("mediaSubtype", safe(mediaSubtype)); o.put("valid", valid);
             return o;
         }
-
         static TemplateItem fromJson(JSONObject o) {
             TemplateItem item = new TemplateItem();
             item.source = o.optString("source", "default");
@@ -103,7 +87,6 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             item.category = o.optString("category", "Templates");
             item.mediaSubtype = o.optString("mediaSubtype", "webp");
             item.valid = o.optBoolean("valid", true);
-            item.error = o.optString("error", "");
             return item;
         }
         private static String safe(String s) { return s == null ? "" : s; }
@@ -112,20 +95,21 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
         loadCachedTemplates();
-        hookTemplateButtons((View) getWindow().getDecorView());
+        hookTemplateEntry((View) getWindow().getDecorView());
     }
 
     @Override public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
-        if (hasFocus) hookTemplateButtons((View) getWindow().getDecorView());
+        if (hasFocus) hookTemplateEntry((View) getWindow().getDecorView());
     }
 
     @Override public void onBackPressed() {
-        if (templateOverlay != null) { leaveTemplates(); return; }
+        if (templateScreen) { leaveTemplates(); return; }
         super.onBackPressed();
     }
 
-    private void hookTemplateButtons(View v) {
+    private void hookTemplateEntry(View v) {
+        if (v == null) return;
         if (v instanceof Button) {
             Button b = (Button) v;
             String t = String.valueOf(b.getText()).trim();
@@ -133,59 +117,57 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 b.setText("Templates");
                 b.setOnClickListener(x -> showTemplates());
             }
-        }
-        if (v instanceof ViewGroup) {
+        } else if (v instanceof ViewGroup) {
+            String txt = subtreeText(v).trim().toLowerCase(Locale.US);
+            boolean exactTemplateNav = txt.contains("templates") && !txt.contains("create") && !txt.contains("nodes") && !txt.contains("run") && !txt.contains("output");
+            if (exactTemplateNav) {
+                v.setClickable(true);
+                v.setOnClickListener(x -> showTemplates());
+            }
             ViewGroup g = (ViewGroup) v;
-            for (int i = 0; i < g.getChildCount(); i++) hookTemplateButtons(g.getChildAt(i));
+            for (int i = 0; i < g.getChildCount(); i++) hookTemplateEntry(g.getChildAt(i));
         }
+    }
+
+    private String subtreeText(View v) {
+        if (v instanceof TextView) return String.valueOf(((TextView) v).getText()) + " ";
+        if (!(v instanceof ViewGroup)) return "";
+        ViewGroup g = (ViewGroup) v;
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < g.getChildCount() && i < 8; i++) sb.append(subtreeText(g.getChildAt(i)));
+        return sb.toString();
     }
 
     private void showTemplates() {
         try {
+            templateScreen = true;
             callBaseQuiet("saveUrl");
-            removeTemplateOverlayOnly();
+            View pane = (View) baseField("pane");
+            View graph = (View) baseField("graph");
+            View output = (View) baseField("output");
+            View top = (View) baseField("topPanel");
+            LinearLayout content = (LinearLayout) baseField("content");
+            if (top != null) top.setVisibility(View.GONE);
+            if (pane != null) pane.setVisibility(View.VISIBLE);
+            if (graph != null) graph.setVisibility(View.GONE);
+            if (output != null) output.setVisibility(View.GONE);
+            content.removeAllViews();
+            content.setBackgroundColor(bgRoot());
+            content.setPadding(dp(22), dp(18), dp(22), dp(22));
 
-            templateOverlay = new FrameLayout(this);
-            templateOverlay.setClickable(true);
-            templateOverlay.setFocusable(true);
-            templateOverlay.setBackgroundColor(bgRoot());
-
-            LinearLayout shell = new LinearLayout(this);
-            shell.setOrientation(LinearLayout.VERTICAL);
-            shell.setBackgroundColor(bgRoot());
-            templateOverlay.addView(shell, new FrameLayout.LayoutParams(-1, -1));
-
-            ScrollView scroll = new ScrollView(this);
-            scroll.setFillViewport(true);
-            scroll.setVerticalScrollBarEnabled(false);
-            scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-            scroll.setBackgroundColor(bgRoot());
-            shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
-
-            LinearLayout root = new LinearLayout(this);
-            root.setOrientation(LinearLayout.VERTICAL);
-            root.setPadding(dp(22), dp(18), dp(22), dp(14));
-            root.setBackgroundColor(bgRoot());
-            scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
-
-            root.addView(connectionChip());
-            root.addView(templateHeader());
-            root.addView(searchPanel());
-
+            content.addView(connectionChip(), sectionParams());
+            content.addView(pageHeader("Templates", "Browse and load workflow templates"));
+            content.addView(searchPanel(), sectionParams());
             templateList = new LinearLayout(this);
             templateList.setOrientation(LinearLayout.VERTICAL);
-            root.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
+            content.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
 
-            shell.addView(overlayBottomNav(), new LinearLayout.LayoutParams(-1, dp(78)));
-
-            ViewGroup decor = (ViewGroup) getWindow().getDecorView();
-            decor.addView(templateOverlay, new ViewGroup.LayoutParams(-1, -1));
-
+            renderTemplateBottomNav();
             if (templates.isEmpty()) {
                 loadCachedTemplates();
                 if (templates.isEmpty() && !baseUrl().isEmpty()) loadTemplates();
             }
-            refreshTemplateMetaTexts();
+            refreshMeta();
             renderTemplates();
             setStatus(templates.isEmpty() ? "Templates cache is empty. Tap Refresh." : "Templates loaded from local cache.");
             callBaseQuiet("applyBars");
@@ -194,68 +176,41 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         }
     }
 
+    private void leaveTemplates() {
+        templateScreen = false;
+        templateList = null;
+        search = null;
+        try { callBase("showCreate"); } catch (Exception ignored) {}
+        hookTemplateEntry((View) getWindow().getDecorView());
+    }
+
     private View connectionChip() {
         LinearLayout chip = new LinearLayout(this);
         chip.setOrientation(LinearLayout.HORIZONTAL);
         chip.setGravity(Gravity.CENTER_VERTICAL);
         chip.setPadding(dp(12), 0, dp(12), 0);
         chip.setBackground(bg(surface(), 12, stroke(), 1));
-        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(42));
-        cp.setMargins(0, 0, 0, dp(14));
-        chip.setLayoutParams(cp);
-        TextView dot = text("●", 16, rgb(66, 184, 93));
-        dot.setGravity(Gravity.CENTER);
-        chip.addView(dot, new LinearLayout.LayoutParams(dp(24), -1));
-        TextView label = text("Connected to ComfyUI Remote", 13, mutedColor());
+        chip.addView(text("●", 16, rgb(66, 184, 93)), new LinearLayout.LayoutParams(dp(24), -1));
+        TextView label = muted("Connected to ComfyUI Remote", 12);
         label.setSingleLine(true);
         chip.addView(label, new LinearLayout.LayoutParams(0, -1, 1));
-        TextView arrow = text("›", 20, mutedColor());
+        TextView arrow = muted("›", 20);
         arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        chip.addView(arrow, new LinearLayout.LayoutParams(dp(22), -1));
-        chip.setOnClickListener(v -> { removeTemplateOverlayOnly(); try { callBase("toggleTopPanel"); } catch (Exception ignored) {} });
+        chip.addView(arrow, new LinearLayout.LayoutParams(dp(24), -1));
+        chip.setOnClickListener(v -> { try { callBase("toggleTopPanel"); } catch (Exception ignored) {} });
         return chip;
     }
 
-    private void removeTemplateOverlayOnly() {
-        if (templateOverlay != null) {
-            ViewGroup parent = (ViewGroup) templateOverlay.getParent();
-            if (parent != null) parent.removeView(templateOverlay);
-            templateOverlay = null;
-            templateOverlayStatus = null;
-            templateLoadedText = null;
-            templateUpdatedText = null;
-            templateList = null;
-        }
-    }
-
-    private void leaveTemplates() {
-        removeTemplateOverlayOnly();
-        try {
-            callBase("showCreate");
-            hookTemplateButtons((View) getWindow().getDecorView());
-        } catch (Exception ignored) {}
-    }
-
-    private View templateHeader() {
+    private View pageHeader(String title, String subtitle) {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(0, 0, 0, dp(16));
-
-        LinearLayout titleWrap = new LinearLayout(this);
-        titleWrap.setOrientation(LinearLayout.VERTICAL);
-        head.addView(titleWrap, new LinearLayout.LayoutParams(0, -2, 1));
-
-        TextView title = title("Templates");
-        title.setTextSize(28);
-        title.setPadding(0, 0, 0, 0);
-        titleWrap.addView(title);
-
-        TextView subtitle = muted("Browse and load workflow templates");
-        subtitle.setTextSize(13);
-        subtitle.setPadding(0, 0, 0, 0);
-        titleWrap.addView(subtitle);
-
+        head.setPadding(0, dp(8), 0, dp(10));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        head.addView(texts, new LinearLayout.LayoutParams(0, -2, 1));
+        texts.addView(title(title, 28));
+        texts.addView(muted(subtitle, 13));
         ImageView logo = new ImageView(this);
         logo.setImageResource(R.drawable.ic_launcher);
         logo.setPadding(dp(8), dp(8), dp(8), dp(8));
@@ -265,23 +220,17 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     }
 
     private View searchPanel() {
-        LinearLayout tools = new LinearLayout(this);
-        tools.setOrientation(LinearLayout.VERTICAL);
-        tools.setPadding(0, 0, 0, dp(12));
-
+        LinearLayout tools = card(false);
+        tools.setPadding(dp(12), dp(12), dp(12), dp(12));
         LinearLayout searchBox = new LinearLayout(this);
         searchBox.setOrientation(LinearLayout.HORIZONTAL);
         searchBox.setGravity(Gravity.CENTER_VERTICAL);
         searchBox.setPadding(dp(12), 0, dp(10), 0);
-        searchBox.setBackground(bg(surface(), 10, stroke(), 1));
-        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(50));
-        sp.setMargins(0, 0, 0, dp(12));
-        tools.addView(searchBox, sp);
-
-        TextView icon = text("⌕", 22, mutedColor());
+        searchBox.setBackground(bg(surface2(), 10, stroke(), 1));
+        tools.addView(searchBox, new LinearLayout.LayoutParams(-1, dp(48)));
+        TextView icon = muted("⌕", 22);
         icon.setGravity(Gravity.CENTER);
         searchBox.addView(icon, new LinearLayout.LayoutParams(dp(30), -1));
-
         search = new EditText(this);
         search.setSingleLine(true);
         search.setText(filter == null ? "" : filter);
@@ -292,103 +241,64 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         search.setPadding(dp(8), 0, 0, 0);
         search.setBackgroundColor(Color.TRANSPARENT);
         searchBox.addView(search, new LinearLayout.LayoutParams(0, -1, 1));
-
-        TextView filterIcon = text("☷", 18, mutedColor());
+        TextView filterIcon = muted("☷", 18);
         filterIcon.setGravity(Gravity.CENTER);
         searchBox.addView(filterIcon, new LinearLayout.LayoutParams(dp(32), -1));
 
         LinearLayout meta = new LinearLayout(this);
         meta.setOrientation(LinearLayout.HORIZONTAL);
-        meta.setGravity(Gravity.CENTER_VERTICAL);
-        tools.addView(meta, new LinearLayout.LayoutParams(-1, dp(28)));
-        templateLoadedText = text("", 12, mutedColor());
-        templateLoadedText.setSingleLine(true);
-        meta.addView(templateLoadedText, new LinearLayout.LayoutParams(0, -1, 1));
-        templateUpdatedText = text("", 12, mutedColor());
-        templateUpdatedText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-        templateUpdatedText.setSingleLine(true);
-        meta.addView(templateUpdatedText, new LinearLayout.LayoutParams(0, -1, 1));
+        meta.setPadding(0, dp(8), 0, 0);
+        tools.addView(meta, new LinearLayout.LayoutParams(-1, dp(34)));
+        loadedText = muted("", 12);
+        loadedText.setSingleLine(true);
+        meta.addView(loadedText, new LinearLayout.LayoutParams(0, -1, 1));
+        updatedText = muted("", 12);
+        updatedText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        updatedText.setSingleLine(true);
+        meta.addView(updatedText, new LinearLayout.LayoutParams(0, -1, 1));
 
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
-        actions.setGravity(Gravity.CENTER_VERTICAL);
         LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(48));
-        ap.setMargins(0, dp(4), 0, dp(6));
+        ap.setMargins(0, dp(6), 0, dp(6));
         tools.addView(actions, ap);
-        Button refresh = actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh Templates", true);
-        refresh.setOnClickListener(v -> loadTemplates());
-        actions.addView(refresh, weight(dp(48)));
-        Button clear = actionButton("⌫ Clear", false);
-        clear.setOnClickListener(v -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); });
-        actions.addView(clear, weight(dp(48)));
-
-        templateOverlayStatus = muted("Refresh once to cache templates and previews.");
-        templateOverlayStatus.setTextSize(12);
-        templateOverlayStatus.setMaxLines(1);
-        templateOverlayStatus.setEllipsize(TextUtils.TruncateAt.END);
-        tools.addView(templateOverlayStatus, new LinearLayout.LayoutParams(-1, -2));
+        actions.addView(actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh Templates", true, this::loadTemplates), weight(dp(48)));
+        actions.addView(actionButton("⌫ Clear", false, () -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); }), weight(dp(48)));
+        templateStatus = muted("Refresh once to cache templates and previews.", 12);
+        templateStatus.setSingleLine(true);
+        templateStatus.setEllipsize(TextUtils.TruncateAt.END);
+        tools.addView(templateStatus);
 
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                filter = String.valueOf(s == null ? "" : s);
-                renderLimit = PAGE_SIZE;
-                renderTemplates();
-            }
+            public void onTextChanged(CharSequence s, int start, int before, int count) { filter = String.valueOf(s == null ? "" : s); renderLimit = PAGE_SIZE; renderTemplates(); }
             public void afterTextChanged(Editable s) {}
         });
-        refreshTemplateMetaTexts();
+        refreshMeta();
         return tools;
     }
 
-    private void refreshTemplateMetaTexts() {
-        if (templateLoadedText != null) {
-            templateLoadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " templates");
-            templateLoadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent());
-        }
-        if (templateUpdatedText != null) {
-            templateUpdatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet");
-        }
-    }
-
-    private View overlayBottomNav() {
-        LinearLayout nav = new LinearLayout(this);
-        nav.setOrientation(LinearLayout.HORIZONTAL);
-        nav.setGravity(Gravity.CENTER);
-        nav.setPadding(dp(14), dp(8), dp(14), dp(8));
-        nav.setBackgroundColor(surface());
-        nav.addView(navButton("⊞", "Create", false, () -> leaveTemplates()), weight(dp(60)));
-        nav.addView(navButton("⌘", "Nodes", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("showNodes"); }), weight(dp(60)));
-        nav.addView(navButton("▦", "Templates", true, () -> {}), weight(dp(60)));
-        nav.addView(navButton("▷", "Run", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("runWorkflow"); }), weight(dp(60)));
-        nav.addView(navButton("▧", "Output", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("openOutput"); }), weight(dp(60)));
-        return nav;
-    }
-
-    private View navButton(String icon, String label, boolean selected, Runnable action) {
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER);
-        box.setPadding(0, dp(3), 0, dp(3));
-        box.setBackground(selected ? bg(Color.rgb(37, 31, 22), 12, accent(), 1) : null);
-        TextView i = text(icon, 20, selected ? accent() : mutedColor());
-        i.setGravity(Gravity.CENTER);
-        box.addView(i, new LinearLayout.LayoutParams(-1, dp(24)));
-        TextView l = text(label, 10, selected ? accent() : mutedColor());
-        l.setGravity(Gravity.CENTER);
-        l.setSingleLine(true);
-        box.addView(l, new LinearLayout.LayoutParams(-1, dp(20)));
-        box.setOnClickListener(v -> action.run());
-        return box;
+    private void renderTemplateBottomNav() {
+        try {
+            LinearLayout nav = (LinearLayout) baseField("bottomNav");
+            if (nav == null) return;
+            nav.setVisibility(View.VISIBLE);
+            nav.removeAllViews();
+            nav.setBackgroundColor(surface());
+            nav.addView(navItem("⊞", "Create", false, () -> leaveTemplates()), weight(dp(62)));
+            nav.addView(navItem("⌘", "Nodes", false, () -> { templateScreen = false; callBaseQuiet("showNodes"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
+            nav.addView(navItem("▦", "Templates", true, this::showTemplates), weight(dp(62)));
+            nav.addView(navItem("▷", "Run", false, () -> { templateScreen = false; callBaseQuiet("runWorkflow"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
+            nav.addView(navItem("▧", "Output", false, () -> { templateScreen = false; callBaseQuiet("openOutput"); hookTemplateEntry((View) getWindow().getDecorView()); }), weight(dp(62)));
+        } catch (Exception ignored) {}
     }
 
     private void loadCachedTemplates() {
         SharedPreferences prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         lastUpdatedAt = prefs.getLong(KEY_UPDATED_AT, 0L);
-        String raw = prefs.getString(KEY_CARDS, "[]");
         ArrayList<TemplateItem> cached = new ArrayList<>();
         try {
-            JSONArray arr = new JSONArray(raw == null ? "[]" : raw);
+            JSONArray arr = new JSONArray(prefs.getString(KEY_CARDS, "[]"));
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject o = arr.optJSONObject(i);
                 if (o == null) continue;
@@ -402,9 +312,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
 
     private void saveTemplateCards(ArrayList<TemplateItem> items, long updatedAt) {
         JSONArray arr = new JSONArray();
-        for (TemplateItem item : items) {
-            try { arr.put(item.toJson()); } catch (Exception ignored) {}
-        }
+        for (TemplateItem item : items) { try { arr.put(item.toJson()); } catch (Exception ignored) {} }
         getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY_CARDS, arr.toString()).putLong(KEY_UPDATED_AT, updatedAt).apply();
     }
 
@@ -452,36 +360,22 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                         String name = arr.optString(i, "").trim();
                         if (name.isEmpty()) continue;
                         TemplateItem item = new TemplateItem();
-                        item.source = module;
-                        item.name = name;
-                        item.title = name;
-                        item.description = module;
-                        item.category = "Custom templates";
-                        item.mediaSubtype = "";
-                        item.valid = true;
+                        item.source = module; item.name = name; item.title = name; item.description = module;
+                        item.category = "Custom templates"; item.mediaSubtype = ""; item.valid = true;
                         loaded.add(item);
                     }
                 }
             } catch (Exception e) { warnings.add("custom templates: " + shortErr(e)); }
-
             long updatedAt = System.currentTimeMillis();
             String warning = joinWarnings(warnings);
             ui.post(() -> {
                 refreshing = false;
                 if (!loaded.isEmpty()) {
-                    templates.clear();
-                    templates.addAll(loaded);
-                    lastUpdatedAt = updatedAt;
-                    saveTemplateCards(loaded, updatedAt);
-                    renderLimit = PAGE_SIZE;
-                    refreshTemplateMetaTexts();
-                    renderTemplates();
+                    templates.clear(); templates.addAll(loaded); lastUpdatedAt = updatedAt;
+                    saveTemplateCards(loaded, updatedAt); renderLimit = PAGE_SIZE; refreshMeta(); renderTemplates();
                     setStatus("Loaded " + loaded.size() + " templates. Preloading workflow JSON..." + warning);
                     preloadTemplateJsons(base, new ArrayList<>(loaded));
-                } else {
-                    renderTemplates();
-                    setStatus("Refresh failed; kept local cache." + warning);
-                }
+                } else { renderTemplates(); setStatus("Refresh failed; kept local cache." + warning); }
             });
         }).start();
     }
@@ -494,21 +388,12 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             for (int i = 0; i < items.size(); i++) {
                 TemplateItem item = items.get(i);
                 if (item == null || !item.valid || safe(item.name).trim().isEmpty()) continue;
-                try {
-                    String raw = getText(templateJsonUrl(base, item));
-                    writeText(rawTemplateFile(base, item), raw);
-                    ok++;
-                } catch (Exception e) { failed++; }
-                if (i % 10 == 0) {
-                    int done = i + 1, count = ok;
-                    ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + "."));
-                }
+                try { String raw = getText(templateJsonUrl(base, item)); writeText(rawTemplateFile(base, item), raw); ok++; }
+                catch (Exception e) { failed++; }
+                if (i % 10 == 0) { int done = i + 1, count = ok; ui.post(() -> setStatus("Preloading templates: " + done + "/" + items.size() + " cached " + count + ".")); }
             }
             int finalOk = ok, finalFailed = failed;
-            ui.post(() -> {
-                preloading = false;
-                setStatus("Templates ready. Cached workflows: " + finalOk + (finalFailed > 0 ? ", failed: " + finalFailed + "." : "."));
-            });
+            ui.post(() -> { preloading = false; setStatus("Templates ready. Cached workflows: " + finalOk + (finalFailed > 0 ? ", failed: " + finalFailed + "." : ".")); });
         }).start();
     }
 
@@ -518,28 +403,19 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         String q = safe(filter).trim().toLowerCase(Locale.US);
         ArrayList<TemplateItem> matches = new ArrayList<>();
         for (TemplateItem item : templates) {
-            if (item == null) continue;
             String hay = metadataText(item).toLowerCase(Locale.US);
-            if (!q.isEmpty() && !hay.contains(q)) continue;
-            matches.add(item);
+            if (q.isEmpty() || hay.contains(q)) matches.add(item);
         }
-
         int shown = 0;
         int max = Math.min(renderLimit, matches.size());
-        for (int i = 0; i < max; i++) { templateList.addView(templateCard(matches.get(i))); shown++; }
-
-        if (matches.isEmpty()) {
-            templateList.addView(muted(templates.isEmpty() ? "No templates cached yet. Tap Refresh." : "Nothing found."));
-            return;
-        }
+        for (int i = 0; i < max; i++) { templateList.addView(templateCard(matches.get(i)), sectionParams()); shown++; }
+        if (matches.isEmpty()) templateList.addView(muted(templates.isEmpty() ? "No templates cached yet. Tap Refresh." : "Nothing found.", 14));
         if (matches.size() > shown) {
             LinearLayout more = card(false);
             more.setGravity(Gravity.CENTER_HORIZONTAL);
-            more.addView(muted("Showing " + shown + " of " + matches.size() + " templates."));
-            Button showMore = actionButton("Show more", false);
-            showMore.setOnClickListener(v -> { renderLimit += PAGE_SIZE; renderTemplates(); });
-            more.addView(showMore, new LinearLayout.LayoutParams(-1, dp(42)));
-            templateList.addView(more, cardMargin());
+            more.addView(muted("Showing " + shown + " of " + matches.size() + " templates.", 13));
+            more.addView(actionButton("Show more", false, () -> { renderLimit += PAGE_SIZE; renderTemplates(); }), new LinearLayout.LayoutParams(-1, dp(42)));
+            templateList.addView(more, sectionParams());
         }
     }
 
@@ -554,7 +430,6 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         ImageView img = new ImageView(this);
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         img.setImageResource(R.drawable.ic_launcher);
-        img.setPadding(0, 0, 0, 0);
         img.setBackground(bg(surface2(), 8, stroke(), 1));
         img.setTag(item.id());
         LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(116), dp(92));
@@ -565,51 +440,35 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         body.setOrientation(LinearLayout.VERTICAL);
         body.setGravity(Gravity.CENTER_VERTICAL);
         row.addView(body, new LinearLayout.LayoutParams(0, dp(92), 1));
-
-        TextView name = title(displayTitle(item));
-        name.setTextSize(16);
+        TextView name = title(displayTitle(item), 16);
         name.setMaxLines(2);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setPadding(0, 0, 0, dp(5));
-        body.addView(name, new LinearLayout.LayoutParams(-1, -2));
-
+        body.addView(name);
         String desc = safe(item.description).trim();
-        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 150));
-        sub.setTextSize(12);
+        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 150), 12);
         sub.setMaxLines(3);
         sub.setEllipsize(TextUtils.TruncateAt.END);
-        sub.setPadding(0, 0, 0, 0);
-        body.addView(sub, new LinearLayout.LayoutParams(-1, -2));
-
-        TextView arrow = text("›", 28, mutedColor());
+        body.addView(sub);
+        TextView arrow = muted("›", 28);
         arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
         row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(92)));
         loadPreview(img, item);
-        LinearLayout.LayoutParams rp = cardMargin();
-        row.setLayoutParams(rp);
         return row;
     }
 
     private void openTemplate(TemplateItem item) {
         String base = baseUrl();
         if (base.isEmpty()) { setStatus("Enter ComfyUI URL first, then open a template."); return; }
-        if (item == null || safe(item.name).trim().isEmpty()) { setStatus("Invalid template item."); return; }
         setStatus("Opening template: " + displayTitle(item));
         new Thread(() -> {
             try {
                 String raw = readText(rawTemplateFile(base, item));
-                if (raw.trim().isEmpty()) {
-                    raw = getText(templateJsonUrl(base, item));
-                    writeText(rawTemplateFile(base, item), raw);
-                }
+                if (raw.trim().isEmpty()) { raw = getText(templateJsonUrl(base, item)); writeText(rawTemplateFile(base, item), raw); }
                 JSONObject graph = new JSONObject(raw);
                 JSONObject prompt = extractApiPrompt(graph);
                 JSONObject defs = new JSONObject(getText(base + "/api/object_info"));
                 JSONObject res = new JSONObject();
-                res.put("ok", true);
-                res.put("prompt", prompt);
-                res.put("options", buildOptions(prompt, defs));
-                res.put("mode", "Templates");
+                res.put("ok", true); res.put("prompt", prompt); res.put("options", buildOptions(prompt, defs)); res.put("mode", "Templates");
                 ui.post(() -> importPrompt(res.toString()));
             } catch (Exception e) { ui.post(() -> setStatus("Template open failed: " + shortErr(e))); }
         }).start();
@@ -624,241 +483,74 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         JSONObject workflow = graph.optJSONObject("workflow");
         if (workflow != null && looksApiPrompt(workflow)) return workflow;
         if (looksApiPrompt(graph)) return graph;
-        throw new JSONException("template has no embedded API prompt; graph conversion is not supported for this template yet");
+        throw new JSONException("template has no embedded API prompt");
     }
-
-    private boolean looksApiPrompt(JSONObject o) {
-        if (o == null) return false;
-        Iterator<String> it = o.keys();
-        while (it.hasNext()) {
-            JSONObject n = o.optJSONObject(it.next());
-            if (n != null && n.has("class_type")) return true;
-        }
-        return false;
-    }
-
-    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException {
-        JSONObject options = new JSONObject();
-        Iterator<String> ids = prompt.keys();
-        while (ids.hasNext()) {
-            String id = ids.next();
-            JSONObject node = prompt.optJSONObject(id);
-            if (node == null) continue;
-            String cls = node.optString("class_type", "");
-            JSONObject def = defs.optJSONObject(cls);
-            JSONObject input = def == null ? null : def.optJSONObject("input");
-            addOptions(options, id, input == null ? null : input.optJSONObject("required"));
-            addOptions(options, id, input == null ? null : input.optJSONObject("optional"));
-        }
-        return options;
-    }
-
-    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException {
-        if (section == null) return;
-        Iterator<String> it = section.keys();
-        while (it.hasNext()) {
-            String key = it.next();
-            Object raw = section.opt(key);
-            if (!(raw instanceof JSONArray)) continue;
-            Object first = ((JSONArray) raw).opt(0);
-            if (first instanceof JSONArray) out.put(id + ":" + key, first);
-        }
-    }
+    private boolean looksApiPrompt(JSONObject o) { if (o == null) return false; Iterator<String> it = o.keys(); while (it.hasNext()) { JSONObject n = o.optJSONObject(it.next()); if (n != null && n.has("class_type")) return true; } return false; }
+    private JSONObject buildOptions(JSONObject prompt, JSONObject defs) throws JSONException { JSONObject options = new JSONObject(); Iterator<String> ids = prompt.keys(); while (ids.hasNext()) { String id = ids.next(); JSONObject node = prompt.optJSONObject(id); if (node == null) continue; JSONObject def = defs.optJSONObject(node.optString("class_type", "")); JSONObject input = def == null ? null : def.optJSONObject("input"); addOptions(options, id, input == null ? null : input.optJSONObject("required")); addOptions(options, id, input == null ? null : input.optJSONObject("optional")); } return options; }
+    private void addOptions(JSONObject out, String id, JSONObject section) throws JSONException { if (section == null) return; Iterator<String> it = section.keys(); while (it.hasNext()) { String key = it.next(); Object raw = section.opt(key); if (raw instanceof JSONArray) { Object first = ((JSONArray) raw).opt(0); if (first instanceof JSONArray) out.put(id + ":" + key, first); } } }
 
     private void loadPreview(ImageView img, TemplateItem item) {
-        String base = baseUrl();
-        String tag = item.id();
-        img.setTag(tag);
-        new Thread(() -> {
-            try {
-                for (String ext : previewExtensions(item)) {
-                    File cached = previewFile(base, item, ext);
-                    if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; }
-                }
-                if (base.isEmpty()) return;
-                for (String ext : previewExtensions(item)) {
-                    try {
-                        File target = previewFile(base, item, ext);
-                        downloadToFile(previewUrl(base, item, ext, false), target);
-                        showPreviewFile(img, tag, target);
-                        return;
-                    } catch (Exception ignored) {}
-                    try {
-                        File target = previewFile(base, item, ext);
-                        downloadToFile(previewUrl(base, item, ext, true), target);
-                        showPreviewFile(img, tag, target);
-                        return;
-                    } catch (Exception ignored) {}
-                }
-            } catch (Exception ignored) {}
-        }).start();
-    }
-
-    private ArrayList<String> previewExtensions(TemplateItem item) {
-        LinkedHashSet<String> exts = new LinkedHashSet<>();
-        String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US);
-        if (!s.isEmpty()) exts.add(s);
-        exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg");
-        return new ArrayList<>(exts);
-    }
-
-    private void showPreviewFile(ImageView img, String expectedTag, File file) {
-        Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92));
-        if (bitmap == null) return;
-        ui.post(() -> {
-            Object currentTag = img.getTag();
-            if (currentTag == null || !String.valueOf(currentTag).equals(expectedTag)) return;
-            img.setPadding(0, 0, 0, 0);
-            img.setImageBitmap(bitmap);
-        });
-    }
-
-    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) {
-        if (file == null || !file.exists() || file.length() <= 0) return null;
-        try {
-            BitmapFactory.Options bounds = new BitmapFactory.Options();
-            bounds.inJustDecodeBounds = true;
-            BitmapFactory.decodeFile(file.getAbsolutePath(), bounds);
-            if (bounds.outWidth > 0 && bounds.outHeight > 0) {
-                BitmapFactory.Options opts = new BitmapFactory.Options();
-                opts.inPreferredConfig = Bitmap.Config.RGB_565;
-                opts.inSampleSize = sampleSize(bounds.outWidth, bounds.outHeight, targetW, targetH);
-                return BitmapFactory.decodeFile(file.getAbsolutePath(), opts);
+        String base = baseUrl(), tag = item.id(); img.setTag(tag);
+        new Thread(() -> { try {
+            for (String ext : previewExtensions(item)) { File cached = previewFile(base, item, ext); if (cached.exists() && cached.length() > 0) { showPreviewFile(img, tag, cached); return; } }
+            if (base.isEmpty()) return;
+            for (String ext : previewExtensions(item)) {
+                try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, false), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
+                try { File target = previewFile(base, item, ext); downloadToFile(previewUrl(base, item, ext, true), target); showPreviewFile(img, tag, target); return; } catch (Exception ignored) {}
             }
-        } catch (Exception ignored) {}
-        if (Build.VERSION.SDK_INT >= 28) {
-            try {
-                ImageDecoder.Source source = ImageDecoder.createSource(file);
-                return ImageDecoder.decodeBitmap(source, (decoder, info, src) -> {
-                    decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE);
-                    Size s = info.getSize();
-                    int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH);
-                    decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample));
-                });
-            } catch (Exception ignored) {}
-        }
-        return null;
+        } catch (Exception ignored) {} }).start();
     }
+    private ArrayList<String> previewExtensions(TemplateItem item) { LinkedHashSet<String> exts = new LinkedHashSet<>(); String s = safe(item.mediaSubtype).trim().toLowerCase(Locale.US); if (!s.isEmpty()) exts.add(s); exts.add("webp"); exts.add("gif"); exts.add("png"); exts.add("jpg"); exts.add("jpeg"); return new ArrayList<>(exts); }
+    private void showPreviewFile(ImageView img, String tag, File file) { Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92)); if (bitmap == null) return; ui.post(() -> { Object current = img.getTag(); if (current != null && String.valueOf(current).equals(tag)) img.setImageBitmap(bitmap); }); }
+    private Bitmap decodePreviewBitmap(File file, int targetW, int targetH) { if (file == null || !file.exists() || file.length() <= 0) return null; try { BitmapFactory.Options b = new BitmapFactory.Options(); b.inJustDecodeBounds = true; BitmapFactory.decodeFile(file.getAbsolutePath(), b); if (b.outWidth > 0 && b.outHeight > 0) { BitmapFactory.Options o = new BitmapFactory.Options(); o.inPreferredConfig = Bitmap.Config.RGB_565; o.inSampleSize = sampleSize(b.outWidth, b.outHeight, targetW, targetH); return BitmapFactory.decodeFile(file.getAbsolutePath(), o); } } catch (Exception ignored) {} if (Build.VERSION.SDK_INT >= 28) { try { return ImageDecoder.decodeBitmap(ImageDecoder.createSource(file), (decoder, info, src) -> { decoder.setAllocator(ImageDecoder.ALLOCATOR_SOFTWARE); Size s = info.getSize(); int sample = sampleSize(s.getWidth(), s.getHeight(), targetW, targetH); decoder.setTargetSize(Math.max(1, s.getWidth() / sample), Math.max(1, s.getHeight() / sample)); }); } catch (Exception ignored) {} } return null; }
+    private int sampleSize(int w, int h, int tw, int th) { int sample = 1; while ((w / sample) > tw * 2 || (h / sample) > th * 2) sample *= 2; return Math.max(1, sample); }
 
-    private int sampleSize(int w, int h, int targetW, int targetH) {
-        int sample = 1;
-        while ((w / sample) > targetW * 2 || (h / sample) > targetH * 2) sample *= 2;
-        return Math.max(1, sample);
-    }
-
-    private String templateJsonUrl(String base, TemplateItem item) {
-        if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + ".json";
-        return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json";
-    }
-
-    private String previewUrl(String base, TemplateItem item, String ext, boolean fallback) {
-        if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext;
-        return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext;
-    }
-
+    private String templateJsonUrl(String base, TemplateItem item) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + ".json"; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + ".json"; }
+    private String previewUrl(String base, TemplateItem item, String ext, boolean fallback) { if ("default".equals(item.source)) return base + "/templates/" + path(item.name) + (fallback ? "" : "-1") + "." + ext; return base + "/api/workflow_templates/" + path(item.source) + "/" + path(item.name) + "." + ext; }
     private String getText(String url) throws Exception { return new String(bytes(url, MAX_TEXT_BYTES), "UTF-8"); }
-
-    private byte[] bytes(String url, int maxBytes) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        try {
-            c.setConnectTimeout(10000); c.setReadTimeout(30000);
-            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
-            int code = c.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-            ByteArrayOutputStream out = new ByteArrayOutputStream();
-            byte[] b = new byte[8192]; int n, total = 0;
-            while (in != null && (n = in.read(b)) > 0) {
-                total += n; if (total > maxBytes) throw new Exception("response is too large");
-                out.write(b, 0, n);
-            }
-            if (in != null) in.close();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8"));
-            return out.toByteArray();
-        } finally { c.disconnect(); }
-    }
-
-    private void downloadToFile(String url, File file) throws Exception {
-        HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection();
-        File tmp = new File(file.getAbsolutePath() + ".tmp");
-        try {
-            c.setConnectTimeout(10000); c.setReadTimeout(45000);
-            for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue());
-            int code = c.getResponseCode();
-            InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream();
-            if (code < 200 || code >= 300) throw new Exception("HTTP " + code);
-            File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs();
-            FileOutputStream out = new FileOutputStream(tmp);
-            byte[] b = new byte[16384]; int n;
-            while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n);
-            if (in != null) in.close(); out.flush(); out.close();
-            if (file.exists()) file.delete();
-            if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); }
-        } finally {
-            c.disconnect();
-            if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete();
-        }
-    }
-
-    private File cacheDir(String child) {
-        File dir = new File(getFilesDir(), "template_cache/" + child);
-        if (!dir.exists()) dir.mkdirs();
-        return dir;
-    }
+    private byte[] bytes(String url, int maxBytes) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); try { c.setConnectTimeout(10000); c.setReadTimeout(30000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); ByteArrayOutputStream out = new ByteArrayOutputStream(); byte[] b = new byte[8192]; int n, total = 0; while (in != null && (n = in.read(b)) > 0) { total += n; if (total > maxBytes) throw new Exception("response is too large"); out.write(b, 0, n); } if (in != null) in.close(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code + ": " + out.toString("UTF-8")); return out.toByteArray(); } finally { c.disconnect(); } }
+    private void downloadToFile(String url, File file) throws Exception { HttpURLConnection c = (HttpURLConnection) new URL(url).openConnection(); File tmp = new File(file.getAbsolutePath() + ".tmp"); try { c.setConnectTimeout(10000); c.setReadTimeout(45000); for (Map.Entry<String, String> e : accessHeaders().entrySet()) c.setRequestProperty(e.getKey(), e.getValue()); int code = c.getResponseCode(); InputStream in = code >= 200 && code < 300 ? c.getInputStream() : c.getErrorStream(); if (code < 200 || code >= 300) throw new Exception("HTTP " + code); File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(tmp); byte[] b = new byte[16384]; int n; while (in != null && (n = in.read(b)) > 0) out.write(b, 0, n); if (in != null) in.close(); out.flush(); out.close(); if (file.exists()) file.delete(); if (!tmp.renameTo(file)) { writeBytes(file, readBytes(tmp)); tmp.delete(); } } finally { c.disconnect(); if (tmp.exists() && (!file.exists() || file.length() == 0)) tmp.delete(); } }
+    private File cacheDir(String child) { File dir = new File(getFilesDir(), "template_cache/" + child); if (!dir.exists()) dir.mkdirs(); return dir; }
     private File rawTemplateFile(String base, TemplateItem item) { return new File(cacheDir("raw"), sha1(base + "|" + item.id()) + ".json"); }
     private File previewFile(String base, TemplateItem item, String ext) { return new File(cacheDir("preview"), sha1(base + "|" + item.id() + "|" + ext) + "." + ext.replaceAll("[^A-Za-z0-9]", "")); }
     private String readText(File file) { try { byte[] data = readBytes(file); return data.length == 0 ? "" : new String(data, "UTF-8"); } catch (Exception e) { return ""; } }
-    private byte[] readBytes(File file) {
-        if (file == null || !file.exists() || !file.isFile()) return new byte[0];
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        try { FileInputStream in = new FileInputStream(file); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); in.close(); return out.toByteArray(); }
-        catch (Exception e) { return new byte[0]; }
-    }
+    private byte[] readBytes(File file) { if (file == null || !file.exists() || !file.isFile()) return new byte[0]; ByteArrayOutputStream out = new ByteArrayOutputStream(); try { FileInputStream in = new FileInputStream(file); byte[] buf = new byte[8192]; int n; while ((n = in.read(buf)) > 0) out.write(buf, 0, n); in.close(); return out.toByteArray(); } catch (Exception e) { return new byte[0]; } }
     private void writeText(File file, String text) { try { writeBytes(file, safe(text).getBytes("UTF-8")); } catch (Exception ignored) {} }
-    private void writeBytes(File file, byte[] data) {
-        if (file == null || data == null || data.length == 0) return;
-        try { File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(file); out.write(data); out.flush(); out.close(); } catch (Exception ignored) {}
-    }
-
-    private void importPrompt(String resultJson) {
-        try {
-            removeTemplateOverlayOnly();
-            Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class);
-            m.setAccessible(true);
-            m.invoke(this, resultJson);
-            hookTemplateButtons((View) getWindow().getDecorView());
-        } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); }
-    }
+    private void writeBytes(File file, byte[] data) { if (file == null || data == null || data.length == 0) return; try { File parent = file.getParentFile(); if (parent != null && !parent.exists()) parent.mkdirs(); FileOutputStream out = new FileOutputStream(file); out.write(data); out.flush(); out.close(); } catch (Exception ignored) {} }
+    private void importPrompt(String resultJson) { try { templateScreen = false; Method m = PolishedNodeActivity.class.getDeclaredMethod("handleImportJson", String.class); m.setAccessible(true); m.invoke(this, resultJson); hookTemplateEntry((View) getWindow().getDecorView()); } catch (Exception e) { setStatus("Import failed: " + shortErr(e)); } }
 
     @SuppressWarnings("unchecked") private Map<String, String> accessHeaders() throws Exception { Method m = EnhancedPolishedActivity.class.getDeclaredMethod("accessHeaders"); m.setAccessible(true); return (Map<String, String>) m.invoke(this); }
-    private String baseUrl() { try { Object x = callBase("baseUrl"); return x == null ? "" : String.valueOf(x); } catch (Exception e) { return ""; } }
+    private String baseUrl() { Object x = callBaseQuiet("baseUrl"); return x == null ? "" : String.valueOf(x); }
     private Object baseField(String name) throws Exception { Field f = PolishedNodeActivity.class.getDeclaredField(name); f.setAccessible(true); return f.get(this); }
     private Object callBase(String name) throws Exception { Method m = PolishedNodeActivity.class.getDeclaredMethod(name); m.setAccessible(true); return m.invoke(this); }
-    private void callBaseQuiet(String name) { try { callBase(name); } catch (Exception ignored) {} }
+    private Object callBaseQuiet(String name) { try { return callBase(name); } catch (Exception e) { return null; } }
+    private void refreshMeta() { if (loadedText != null) { loadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " templates"); loadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent()); } if (updatedText != null) updatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet"); }
+    private void setStatus(String s) { Object x = null; try { x = baseField("status"); } catch (Exception ignored) {} if (x instanceof TextView) ((TextView) x).setText(s); if (templateStatus != null) templateStatus.setText(s); }
     private String path(String s) { try { return URLEncoder.encode(s == null ? "" : s, "UTF-8").replace("+", "%20").replace("%2F", "/"); } catch (Exception e) { return s == null ? "" : s; } }
     private String safe(String s) { return s == null ? "" : s; }
     private String safeOpt(JSONObject o, String key, String fallback) { return o == null ? safe(fallback) : o.optString(key, safe(fallback)); }
     private String shortText(String s, int max) { if (s == null) return ""; return s.length() <= max ? s : s.substring(0, Math.max(0, max - 1)) + "…"; }
-    private String shortErr(Exception e) { String s = e == null ? "" : e.getMessage(); if (s == null || s.trim().isEmpty()) s = e == null ? "unknown error" : e.getClass().getSimpleName(); s = s.replace('\n', ' ').replace('\r', ' '); return s.length() > 220 ? s.substring(0, 220) + "…" : s; }
+    private String shortErr(Exception e) { String s = e == null ? "" : e.getMessage(); if (s == null || s.trim().isEmpty()) s = e == null ? "unknown error" : e.getClass().getSimpleName(); return s.length() > 220 ? s.substring(0, 220) + "…" : s; }
     private String displayTitle(TemplateItem item) { String t = safe(item.title).trim(); return t.isEmpty() ? safe(item.name).trim() : t; }
     private String metadataText(TemplateItem item) { return displayTitle(item) + " " + safe(item.name) + " " + safe(item.description) + " " + safe(item.category) + " " + safe(item.source); }
     private String joinWarnings(ArrayList<String> warnings) { if (warnings == null || warnings.isEmpty()) return ""; StringBuilder sb = new StringBuilder(" Warning: "); for (int i = 0; i < warnings.size(); i++) { if (i > 0) sb.append("; "); sb.append(warnings.get(i)); } return sb.toString(); }
     private String timeAgo(long ts) { long sec = Math.max(0L, (System.currentTimeMillis() - ts) / 1000L); if (sec < 60) return "just now"; long min = sec / 60L; if (min < 60) return min + "m ago"; long h = min / 60L; if (h < 24) return h + "h ago"; return (h / 24L) + "d ago"; }
     private String sha1(String value) { try { MessageDigest md = MessageDigest.getInstance("SHA-1"); byte[] d = md.digest(safe(value).getBytes("UTF-8")); StringBuilder sb = new StringBuilder(); for (byte b : d) sb.append(String.format(Locale.US, "%02x", b & 0xff)); return sb.toString(); } catch (Exception e) { return String.valueOf(safe(value).hashCode()).replace("-", "n"); } }
-    private void setStatus(String text) { try { Object status = baseField("status"); if (status instanceof TextView) ((TextView) status).setText(text); } catch (Exception ignored) {} if (templateOverlayStatus != null) templateOverlayStatus.setText(text); }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
-    private int bgRoot() { return Color.rgb(18, 18, 19); }
-    private int surface() { return Color.rgb(28, 28, 30); }
-    private int surface2() { return Color.rgb(33, 33, 36); }
-    private int stroke() { return Color.rgb(48, 48, 52); }
-    private int accent() { return Color.rgb(218, 143, 60); }
-    private int mutedColor() { return Color.rgb(170, 170, 178); }
-    private LinearLayout card(boolean accentBorder) { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(12), dp(12), dp(12), dp(12)); c.setBackground(bg(surface(), 14, accentBorder ? accent() : stroke(), 1)); return c; }
-    private LinearLayout.LayoutParams cardMargin() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(12)); return p; }
+    private int bgRoot() { return Color.rgb(18,18,19); }
+    private int surface() { return Color.rgb(28,28,30); }
+    private int surface2() { return Color.rgb(33,33,36); }
+    private int stroke() { return Color.rgb(48,48,52); }
+    private int mutedColor() { return Color.rgb(170,170,178); }
+    private int accent() { return Color.rgb(218,143,60); }
+    private LinearLayout card(boolean accentBorder) { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(12), dp(12), dp(12), dp(12)); c.setBackground(bg(surface(), 16, accentBorder ? accent() : stroke(), 1)); return c; }
+    private LinearLayout.LayoutParams sectionParams() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(14)); return p; }
     private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(4), 0, dp(4), 0); return p; }
-    private TextView title(String t) { TextView v = text(t, 22, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
-    private TextView muted(String t) { return text(t, 14, mutedColor()); }
+    private TextView title(String t, int size) { TextView v = text(t, size, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
+    private TextView muted(String t, int size) { return text(t, size, mutedColor()); }
     private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setPadding(dp(2), 0, dp(2), dp(5)); return v; }
-    private Button actionButton(String t, boolean primary) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(true); b.setTextColor(primary ? accent() : Color.WHITE); b.setTextSize(13); b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); b.setPadding(dp(8), 0, dp(8), 0); b.setBackground(bg(primary ? Color.rgb(44, 35, 25) : surface2(), 12, primary ? accent() : stroke(), 1)); return b; }
+    private Button actionButton(String t, boolean primary, Runnable action) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(true); b.setTextColor(primary ? accent() : Color.WHITE); b.setTextSize(13); b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); b.setPadding(dp(8), 0, dp(8), 0); b.setBackground(bg(primary ? Color.rgb(44,35,25) : surface2(), 12, primary ? accent() : stroke(), 1)); b.setOnClickListener(v -> action.run()); return b; }
+    private View navItem(String icon, String label, boolean selected, Runnable action) { LinearLayout box = new LinearLayout(this); box.setOrientation(LinearLayout.VERTICAL); box.setGravity(Gravity.CENTER); box.setPadding(0, dp(4), 0, dp(4)); box.setBackground(selected ? bg(Color.rgb(37,31,22), 12, accent(), 1) : bg(Color.TRANSPARENT, 12, Color.TRANSPARENT, 0)); TextView i = text(icon, 20, selected ? accent() : mutedColor()); i.setGravity(Gravity.CENTER); box.addView(i, new LinearLayout.LayoutParams(-1, dp(24))); TextView l = text(label, 10, selected ? accent() : mutedColor()); l.setGravity(Gravity.CENTER); l.setSingleLine(true); box.addView(l, new LinearLayout.LayoutParams(-1, dp(20))); box.setOnClickListener(v -> action.run()); return box; }
     private GradientDrawable bg(int color, int radiusDp, int stroke, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radiusDp)); d.setStroke(dp(strokeDp), stroke); return d; }
 }
