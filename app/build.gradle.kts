@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 49
-        versionName = "0.13.0-workstation"
+        versionCode = 50
+        versionName = "0.13.1-preview-fields"
     }
 }
 
