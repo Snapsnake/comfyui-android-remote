@@ -10,7 +10,7 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 43
-        versionName = "0.11.0-stable-url-launcher"
+        versionCode = 44
+        versionName = "0.11.1-standalone-native-stable"
     }
 }
