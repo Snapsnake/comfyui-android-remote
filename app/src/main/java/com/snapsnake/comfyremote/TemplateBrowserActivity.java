@@ -61,6 +61,8 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private EditText search;
     private FrameLayout templateOverlay;
     private TextView templateOverlayStatus;
+    private TextView templateLoadedText;
+    private TextView templateUpdatedText;
     private String filter = "";
     private int renderLimit = PAGE_SIZE;
     private long lastUpdatedAt = 0L;
@@ -119,10 +121,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     }
 
     @Override public void onBackPressed() {
-        if (templateOverlay != null) {
-            leaveTemplates();
-            return;
-        }
+        if (templateOverlay != null) { leaveTemplates(); return; }
         super.onBackPressed();
     }
 
@@ -149,27 +148,35 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             templateOverlay = new FrameLayout(this);
             templateOverlay.setClickable(true);
             templateOverlay.setFocusable(true);
-            templateOverlay.setBackgroundColor(Color.BLACK);
+            templateOverlay.setBackgroundColor(bgRoot());
+
+            LinearLayout shell = new LinearLayout(this);
+            shell.setOrientation(LinearLayout.VERTICAL);
+            shell.setBackgroundColor(bgRoot());
+            templateOverlay.addView(shell, new FrameLayout.LayoutParams(-1, -1));
 
             ScrollView scroll = new ScrollView(this);
             scroll.setFillViewport(true);
             scroll.setVerticalScrollBarEnabled(false);
             scroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
-            scroll.setBackgroundColor(Color.BLACK);
-            templateOverlay.addView(scroll, new FrameLayout.LayoutParams(-1, -1));
+            scroll.setBackgroundColor(bgRoot());
+            shell.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
 
             LinearLayout root = new LinearLayout(this);
             root.setOrientation(LinearLayout.VERTICAL);
-            root.setPadding(dp(34), dp(22), dp(34), dp(28));
-            root.setBackgroundColor(Color.BLACK);
+            root.setPadding(dp(22), dp(18), dp(22), dp(14));
+            root.setBackgroundColor(bgRoot());
             scroll.addView(root, new ScrollView.LayoutParams(-1, -2));
 
+            root.addView(connectionChip());
             root.addView(templateHeader());
             root.addView(searchPanel());
 
             templateList = new LinearLayout(this);
             templateList.setOrientation(LinearLayout.VERTICAL);
             root.addView(templateList, new LinearLayout.LayoutParams(-1, -2));
+
+            shell.addView(overlayBottomNav(), new LinearLayout.LayoutParams(-1, dp(78)));
 
             ViewGroup decor = (ViewGroup) getWindow().getDecorView();
             decor.addView(templateOverlay, new ViewGroup.LayoutParams(-1, -1));
@@ -178,6 +185,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                 loadCachedTemplates();
                 if (templates.isEmpty() && !baseUrl().isEmpty()) loadTemplates();
             }
+            refreshTemplateMetaTexts();
             renderTemplates();
             setStatus(templates.isEmpty() ? "Templates cache is empty. Tap Refresh." : "Templates loaded from local cache.");
             callBaseQuiet("applyBars");
@@ -186,12 +194,36 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         }
     }
 
+    private View connectionChip() {
+        LinearLayout chip = new LinearLayout(this);
+        chip.setOrientation(LinearLayout.HORIZONTAL);
+        chip.setGravity(Gravity.CENTER_VERTICAL);
+        chip.setPadding(dp(12), 0, dp(12), 0);
+        chip.setBackground(bg(surface(), 12, stroke(), 1));
+        LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, dp(42));
+        cp.setMargins(0, 0, 0, dp(14));
+        chip.setLayoutParams(cp);
+        TextView dot = text("●", 16, rgb(66, 184, 93));
+        dot.setGravity(Gravity.CENTER);
+        chip.addView(dot, new LinearLayout.LayoutParams(dp(24), -1));
+        TextView label = text("Connected to ComfyUI Remote", 13, mutedColor());
+        label.setSingleLine(true);
+        chip.addView(label, new LinearLayout.LayoutParams(0, -1, 1));
+        TextView arrow = text("›", 20, mutedColor());
+        arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        chip.addView(arrow, new LinearLayout.LayoutParams(dp(22), -1));
+        chip.setOnClickListener(v -> { removeTemplateOverlayOnly(); try { callBase("toggleTopPanel"); } catch (Exception ignored) {} });
+        return chip;
+    }
+
     private void removeTemplateOverlayOnly() {
         if (templateOverlay != null) {
             ViewGroup parent = (ViewGroup) templateOverlay.getParent();
             if (parent != null) parent.removeView(templateOverlay);
             templateOverlay = null;
             templateOverlayStatus = null;
+            templateLoadedText = null;
+            templateUpdatedText = null;
             templateList = null;
         }
     }
@@ -208,76 +240,93 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(0, 0, 0, dp(22));
+        head.setPadding(0, 0, 0, dp(16));
 
-        TextView back = text("‹", 34, rgb(226, 232, 240));
-        back.setGravity(Gravity.CENTER);
-        back.setOnClickListener(v -> leaveTemplates());
-        head.addView(back, new LinearLayout.LayoutParams(dp(44), dp(46)));
+        LinearLayout titleWrap = new LinearLayout(this);
+        titleWrap.setOrientation(LinearLayout.VERTICAL);
+        head.addView(titleWrap, new LinearLayout.LayoutParams(0, -2, 1));
 
         TextView title = title("Templates");
-        title.setTextSize(30);
-        title.setGravity(Gravity.CENTER);
-        head.addView(title, new LinearLayout.LayoutParams(0, dp(46), 1));
+        title.setTextSize(28);
+        title.setPadding(0, 0, 0, 0);
+        titleWrap.addView(title);
 
-        TextView spacer = text("", 1, Color.TRANSPARENT);
-        head.addView(spacer, new LinearLayout.LayoutParams(dp(44), dp(46)));
+        TextView subtitle = muted("Browse and load workflow templates");
+        subtitle.setTextSize(13);
+        subtitle.setPadding(0, 0, 0, 0);
+        titleWrap.addView(subtitle);
+
+        ImageView logo = new ImageView(this);
+        logo.setImageResource(R.drawable.ic_launcher);
+        logo.setPadding(dp(8), dp(8), dp(8), dp(8));
+        logo.setBackground(bg(surface2(), 12, stroke(), 1));
+        head.addView(logo, new LinearLayout.LayoutParams(dp(42), dp(42)));
         return head;
     }
 
     private View searchPanel() {
         LinearLayout tools = new LinearLayout(this);
         tools.setOrientation(LinearLayout.VERTICAL);
-        tools.setPadding(0, 0, 0, dp(18));
-
-        TextView label = text("Preloaded Templates", 18, rgb(163, 163, 173));
-        label.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2);
-        lp.setMargins(0, 0, 0, dp(10));
-        tools.addView(label, lp);
+        tools.setPadding(0, 0, 0, dp(12));
 
         LinearLayout searchBox = new LinearLayout(this);
         searchBox.setOrientation(LinearLayout.HORIZONTAL);
         searchBox.setGravity(Gravity.CENTER_VERTICAL);
-        searchBox.setPadding(dp(16), 0, dp(16), 0);
-        searchBox.setBackground(bg(rgb(1, 5, 14), 18, rgb(22, 31, 50), 1));
+        searchBox.setPadding(dp(12), 0, dp(10), 0);
+        searchBox.setBackground(bg(surface(), 10, stroke(), 1));
         LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, dp(50));
-        sp.setMargins(0, 0, 0, dp(10));
+        sp.setMargins(0, 0, 0, dp(12));
         tools.addView(searchBox, sp);
 
-        TextView icon = text("⌕", 23, rgb(203, 213, 225));
+        TextView icon = text("⌕", 22, mutedColor());
         icon.setGravity(Gravity.CENTER);
-        searchBox.addView(icon, new LinearLayout.LayoutParams(dp(34), -1));
+        searchBox.addView(icon, new LinearLayout.LayoutParams(dp(30), -1));
 
         search = new EditText(this);
         search.setSingleLine(true);
         search.setText(filter == null ? "" : filter);
         search.setHint("Search templates…");
         search.setTextColor(Color.WHITE);
-        search.setHintTextColor(rgb(148, 148, 158));
-        search.setTextSize(16);
+        search.setHintTextColor(mutedColor());
+        search.setTextSize(14);
         search.setPadding(dp(8), 0, 0, 0);
         search.setBackgroundColor(Color.TRANSPARENT);
         searchBox.addView(search, new LinearLayout.LayoutParams(0, -1, 1));
 
+        TextView filterIcon = text("☷", 18, mutedColor());
+        filterIcon.setGravity(Gravity.CENTER);
+        searchBox.addView(filterIcon, new LinearLayout.LayoutParams(dp(32), -1));
+
+        LinearLayout meta = new LinearLayout(this);
+        meta.setOrientation(LinearLayout.HORIZONTAL);
+        meta.setGravity(Gravity.CENTER_VERTICAL);
+        tools.addView(meta, new LinearLayout.LayoutParams(-1, dp(28)));
+        templateLoadedText = text("", 12, mutedColor());
+        templateLoadedText.setSingleLine(true);
+        meta.addView(templateLoadedText, new LinearLayout.LayoutParams(0, -1, 1));
+        templateUpdatedText = text("", 12, mutedColor());
+        templateUpdatedText.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        templateUpdatedText.setSingleLine(true);
+        meta.addView(templateUpdatedText, new LinearLayout.LayoutParams(0, -1, 1));
+
         LinearLayout actions = new LinearLayout(this);
         actions.setOrientation(LinearLayout.HORIZONTAL);
         actions.setGravity(Gravity.CENTER_VERTICAL);
-        tools.addView(actions, new LinearLayout.LayoutParams(-1, dp(28)));
-        TextView refresh = link(refreshing ? "⟳ Refreshing…" : "⟳ Refresh templates");
+        LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-1, dp(48));
+        ap.setMargins(0, dp(4), 0, dp(6));
+        tools.addView(actions, ap);
+        Button refresh = actionButton(refreshing ? "⟳ Refreshing…" : "⟳ Refresh Templates", true);
         refresh.setOnClickListener(v -> loadTemplates());
-        actions.addView(refresh, new LinearLayout.LayoutParams(0, -1, 1));
-        TextView clear = link("Clear");
-        clear.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        actions.addView(refresh, weight(dp(48)));
+        Button clear = actionButton("⌫ Clear", false);
         clear.setOnClickListener(v -> { filter = ""; renderLimit = PAGE_SIZE; if (search != null) search.setText(""); renderTemplates(); });
-        actions.addView(clear, new LinearLayout.LayoutParams(dp(76), -1));
+        actions.addView(clear, weight(dp(48)));
 
-        templateOverlayStatus = muted(lastUpdatedAt > 0 ? "Last refresh: " + timeAgo(lastUpdatedAt) : "Refresh once to cache templates and previews.");
+        templateOverlayStatus = muted("Refresh once to cache templates and previews.");
         templateOverlayStatus.setTextSize(12);
         templateOverlayStatus.setMaxLines(1);
         templateOverlayStatus.setEllipsize(TextUtils.TruncateAt.END);
-        templateOverlayStatus.setPadding(dp(2), 0, dp(2), dp(8));
-        tools.addView(templateOverlayStatus);
+        tools.addView(templateOverlayStatus, new LinearLayout.LayoutParams(-1, -2));
 
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
@@ -288,7 +337,49 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             }
             public void afterTextChanged(Editable s) {}
         });
+        refreshTemplateMetaTexts();
         return tools;
+    }
+
+    private void refreshTemplateMetaTexts() {
+        if (templateLoadedText != null) {
+            templateLoadedText.setText((templates.isEmpty() ? "○" : "●") + " Loaded " + templates.size() + " templates");
+            templateLoadedText.setTextColor(templates.isEmpty() ? mutedColor() : accent());
+        }
+        if (templateUpdatedText != null) {
+            templateUpdatedText.setText(lastUpdatedAt > 0 ? "Updated " + timeAgo(lastUpdatedAt) : "Not refreshed yet");
+        }
+    }
+
+    private View overlayBottomNav() {
+        LinearLayout nav = new LinearLayout(this);
+        nav.setOrientation(LinearLayout.HORIZONTAL);
+        nav.setGravity(Gravity.CENTER);
+        nav.setPadding(dp(14), dp(8), dp(14), dp(8));
+        nav.setBackgroundColor(surface());
+        nav.addView(navButton("⊞", "Create", false, () -> leaveTemplates()), weight(dp(60)));
+        nav.addView(navButton("⌘", "Nodes", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("showNodes"); }), weight(dp(60)));
+        nav.addView(navButton("▦", "Templates", true, () -> {}), weight(dp(60)));
+        nav.addView(navButton("▷", "Run", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("runWorkflow"); }), weight(dp(60)));
+        nav.addView(navButton("▧", "Output", false, () -> { removeTemplateOverlayOnly(); callBaseQuiet("openOutput"); }), weight(dp(60)));
+        return nav;
+    }
+
+    private View navButton(String icon, String label, boolean selected, Runnable action) {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER);
+        box.setPadding(0, dp(3), 0, dp(3));
+        box.setBackground(selected ? bg(Color.rgb(37, 31, 22), 12, accent(), 1) : null);
+        TextView i = text(icon, 20, selected ? accent() : mutedColor());
+        i.setGravity(Gravity.CENTER);
+        box.addView(i, new LinearLayout.LayoutParams(-1, dp(24)));
+        TextView l = text(label, 10, selected ? accent() : mutedColor());
+        l.setGravity(Gravity.CENTER);
+        l.setSingleLine(true);
+        box.addView(l, new LinearLayout.LayoutParams(-1, dp(20)));
+        box.setOnClickListener(v -> action.run());
+        return box;
     }
 
     private void loadCachedTemplates() {
@@ -383,6 +474,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
                     lastUpdatedAt = updatedAt;
                     saveTemplateCards(loaded, updatedAt);
                     renderLimit = PAGE_SIZE;
+                    refreshTemplateMetaTexts();
                     renderTemplates();
                     setStatus("Loaded " + loaded.size() + " templates. Preloading workflow JSON..." + warning);
                     preloadTemplateJsons(base, new ArrayList<>(loaded));
@@ -441,24 +533,21 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
             return;
         }
         if (matches.size() > shown) {
-            LinearLayout more = new LinearLayout(this);
-            more.setOrientation(LinearLayout.VERTICAL);
+            LinearLayout more = card(false);
             more.setGravity(Gravity.CENTER_HORIZONTAL);
-            more.setPadding(0, dp(14), 0, dp(12));
             more.addView(muted("Showing " + shown + " of " + matches.size() + " templates."));
-            TextView showMore = link("Show more");
-            showMore.setGravity(Gravity.CENTER);
+            Button showMore = actionButton("Show more", false);
             showMore.setOnClickListener(v -> { renderLimit += PAGE_SIZE; renderTemplates(); });
-            more.addView(showMore, new LinearLayout.LayoutParams(-1, dp(40)));
-            templateList.addView(more);
+            more.addView(showMore, new LinearLayout.LayoutParams(-1, dp(42)));
+            templateList.addView(more, cardMargin());
         }
     }
 
     private View templateCard(TemplateItem item) {
-        LinearLayout row = new LinearLayout(this);
+        LinearLayout row = card(false);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.setPadding(0, dp(6), 0, dp(12));
+        row.setPadding(dp(12), dp(12), dp(12), dp(12));
         row.setClickable(true);
         row.setOnClickListener(v -> openTemplate(item));
 
@@ -466,44 +555,38 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
         img.setScaleType(ImageView.ScaleType.CENTER_CROP);
         img.setImageResource(R.drawable.ic_launcher);
         img.setPadding(0, 0, 0, 0);
-        img.setBackground(bg(rgb(11, 18, 32), 4, rgb(17, 24, 39), 1));
+        img.setBackground(bg(surface2(), 8, stroke(), 1));
         img.setTag(item.id());
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(132), dp(82));
-        ip.setMargins(0, 0, dp(16), 0);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(dp(116), dp(92));
+        ip.setMargins(0, 0, dp(14), 0);
         row.addView(img, ip);
 
         LinearLayout body = new LinearLayout(this);
         body.setOrientation(LinearLayout.VERTICAL);
         body.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(body, new LinearLayout.LayoutParams(0, dp(82), 1));
+        row.addView(body, new LinearLayout.LayoutParams(0, dp(92), 1));
 
         TextView name = title(displayTitle(item));
         name.setTextSize(16);
-        name.setSingleLine(false);
         name.setMaxLines(2);
         name.setEllipsize(TextUtils.TruncateAt.END);
-        name.setPadding(0, 0, 0, dp(3));
+        name.setPadding(0, 0, 0, dp(5));
         body.addView(name, new LinearLayout.LayoutParams(-1, -2));
 
         String desc = safe(item.description).trim();
-        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 160));
-        sub.setTextSize(13);
-        sub.setMaxLines(2);
+        TextView sub = muted(shortText(desc.isEmpty() ? safe(item.category) : desc.replace('_', ' '), 150));
+        sub.setTextSize(12);
+        sub.setMaxLines(3);
         sub.setEllipsize(TextUtils.TruncateAt.END);
         sub.setPadding(0, 0, 0, 0);
         body.addView(sub, new LinearLayout.LayoutParams(-1, -2));
 
-        if (!item.valid) {
-            TextView bad = muted("Template has parsing issues");
-            bad.setTextColor(rgb(251, 191, 36));
-            bad.setMaxLines(1);
-            body.addView(bad);
-        }
-
-        TextView arrow = text("›", 30, rgb(226, 232, 240));
-        arrow.setGravity(Gravity.CENTER);
-        row.addView(arrow, new LinearLayout.LayoutParams(dp(22), dp(82)));
+        TextView arrow = text("›", 28, mutedColor());
+        arrow.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
+        row.addView(arrow, new LinearLayout.LayoutParams(dp(24), dp(92)));
         loadPreview(img, item);
+        LinearLayout.LayoutParams rp = cardMargin();
+        row.setLayoutParams(rp);
         return row;
     }
 
@@ -620,7 +703,7 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     }
 
     private void showPreviewFile(ImageView img, String expectedTag, File file) {
-        Bitmap bitmap = decodePreviewBitmap(file, dp(132), dp(82));
+        Bitmap bitmap = decodePreviewBitmap(file, dp(116), dp(92));
         if (bitmap == null) return;
         ui.post(() -> {
             Object currentTag = img.getTag();
@@ -764,9 +847,18 @@ public class TemplateBrowserActivity extends EnhancedPolishedActivity {
     private void setStatus(String text) { try { Object status = baseField("status"); if (status instanceof TextView) ((TextView) status).setText(text); } catch (Exception ignored) {} if (templateOverlayStatus != null) templateOverlayStatus.setText(text); }
     private int dp(int v) { return Math.round(v * getResources().getDisplayMetrics().density); }
     private int rgb(int r, int g, int b) { return Color.rgb(r, g, b); }
+    private int bgRoot() { return Color.rgb(18, 18, 19); }
+    private int surface() { return Color.rgb(28, 28, 30); }
+    private int surface2() { return Color.rgb(33, 33, 36); }
+    private int stroke() { return Color.rgb(48, 48, 52); }
+    private int accent() { return Color.rgb(218, 143, 60); }
+    private int mutedColor() { return Color.rgb(170, 170, 178); }
+    private LinearLayout card(boolean accentBorder) { LinearLayout c = new LinearLayout(this); c.setOrientation(LinearLayout.VERTICAL); c.setPadding(dp(12), dp(12), dp(12), dp(12)); c.setBackground(bg(surface(), 14, accentBorder ? accent() : stroke(), 1)); return c; }
+    private LinearLayout.LayoutParams cardMargin() { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2); p.setMargins(0, 0, 0, dp(12)); return p; }
+    private LinearLayout.LayoutParams weight(int h) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, h, 1); p.setMargins(dp(4), 0, dp(4), 0); return p; }
     private TextView title(String t) { TextView v = text(t, 22, Color.WHITE); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); return v; }
-    private TextView muted(String t) { return text(t, 14, rgb(148, 148, 158)); }
-    private TextView link(String t) { TextView v = text(t, 14, rgb(226, 232, 240)); v.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); v.setGravity(Gravity.LEFT | Gravity.CENTER_VERTICAL); v.setClickable(true); return v; }
+    private TextView muted(String t) { return text(t, 14, mutedColor()); }
     private TextView text(String t, int size, int color) { TextView v = new TextView(this); v.setText(t); v.setTextColor(color); v.setTextSize(size); v.setPadding(dp(2), 0, dp(2), dp(5)); return v; }
+    private Button actionButton(String t, boolean primary) { Button b = new Button(this); b.setText(t); b.setAllCaps(false); b.setSingleLine(true); b.setTextColor(primary ? accent() : Color.WHITE); b.setTextSize(13); b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL)); b.setPadding(dp(8), 0, dp(8), 0); b.setBackground(bg(primary ? Color.rgb(44, 35, 25) : surface2(), 12, primary ? accent() : stroke(), 1)); return b; }
     private GradientDrawable bg(int color, int radiusDp, int stroke, int strokeDp) { GradientDrawable d = new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radiusDp)); d.setStroke(dp(strokeDp), stroke); return d; }
 }
