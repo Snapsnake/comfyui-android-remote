@@ -5,7 +5,10 @@ import android.webkit.CookieManager;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -21,6 +24,7 @@ import okhttp3.Protocol;
 import okhttp3.Request;
 import okhttp3.RequestBody;
 import okhttp3.Response;
+import okhttp3.ResponseBody;
 import okhttp3.WebSocket;
 import okhttp3.WebSocketListener;
 
@@ -127,8 +131,7 @@ public final class ComfyApiClient {
     public boolean inputImageExists(String workflowValue) throws Exception {
         InputImageUpload.Ref ref = InputImageUpload.parseWorkflowValue(workflowValue);
         if (ref.filename.isEmpty()) return false;
-        String path = "/view?filename=" + enc(ref.filename) + "&subfolder=" + enc(ref.subfolder) + "&type=input";
-        return requestExists(path);
+        return requestExists(outputPath(ref.filename, ref.subfolder, "input"));
     }
 
     public String templateJsonPath(String source, String name) {
@@ -154,8 +157,23 @@ public final class ComfyApiClient {
         return out;
     }
 
+    /**
+     * Returns a private app deep link instead of a browser URL. The native
+     * viewer downloads the asset with the saved Cloudflare Access headers and
+     * can then display it or hand a local content URI to another phone app.
+     */
     public String viewUrl(String filename, String subfolder, String type) {
-        return resolvedBaseUrl() + "/view?filename=" + enc(filename) + "&subfolder=" + enc(subfolder) + "&type=" + enc(type);
+        return "comfyui-mobile-output://open?filename=" + enc(filename)
+                + "&subfolder=" + enc(subfolder) + "&type=" + enc(type);
+    }
+
+    public String outputPath(String filename, String subfolder, String type) {
+        return "/view?filename=" + enc(filename) + "&subfolder=" + enc(subfolder) + "&type=" + enc(type);
+    }
+
+    public void downloadOutputToFile(String filename, String subfolder, String type, File destination) throws Exception {
+        if (filename == null || filename.trim().isEmpty()) throw new IOException("Output filename is empty");
+        requestToFile(outputPath(filename, subfolder, type), destination);
     }
 
     public byte[] getBytes(String path) throws Exception { return requestBytes(path, null, "GET"); }
@@ -197,6 +215,32 @@ public final class ComfyApiClient {
             }
         }
         throw new IOException(errors.length() == 0 ? "No ComfyUI URL configured" : errors.toString().trim());
+    }
+
+    private void requestToFile(String path, File destination) throws Exception {
+        ServerProfile current = profile;
+        if (current == null) throw new IOException("No server profile configured");
+        if (destination == null) throw new IOException("Output destination is missing");
+        File parent = destination.getParentFile();
+        if (parent != null && !parent.exists() && !parent.mkdirs()) throw new IOException("Could not create output cache folder");
+        StringBuilder errors = new StringBuilder();
+        for (String base : orderedCandidates(current)) {
+            try {
+                executeDownload(safeHttp, base + path, destination, true);
+                resolvedBaseUrl = base;
+                return;
+            } catch (Exception e) {
+                errors.append(base).append(" safe: ").append(shortError(e)).append('\n');
+            }
+            try {
+                executeDownload(normalHttp, base + path, destination, false);
+                resolvedBaseUrl = base;
+                return;
+            } catch (Exception e) {
+                errors.append(base).append(" normal: ").append(shortError(e)).append('\n');
+            }
+        }
+        throw new IOException(errors.length() == 0 ? "Could not download ComfyUI output" : errors.toString().trim());
     }
 
     private boolean requestExists(String path) throws Exception {
@@ -250,6 +294,36 @@ public final class ComfyApiClient {
                 throw new IOException("HTTP " + response.code() + ": " + abbreviate(text, 400));
             }
             return bytes;
+        }
+    }
+
+    private void executeDownload(OkHttpClient client, String url, File destination, boolean safeMode) throws Exception {
+        Request.Builder request = new Request.Builder().url(url).get();
+        applyHeaders(request, url, safeMode);
+        File temporary = new File(destination.getParentFile(), destination.getName() + ".part");
+        if (temporary.exists()) temporary.delete();
+        try (Response response = client.newCall(request.build()).execute()) {
+            if (!response.isSuccessful()) {
+                String text = response.body() == null ? "" : response.body().string();
+                throw new IOException("HTTP " + response.code() + ": " + abbreviate(text, 400));
+            }
+            ResponseBody body = response.body();
+            if (body == null) throw new IOException("ComfyUI returned an empty output response");
+            long written = 0;
+            try (InputStream input = body.byteStream(); FileOutputStream output = new FileOutputStream(temporary)) {
+                byte[] buffer = new byte[64 * 1024];
+                int read;
+                while ((read = input.read(buffer)) != -1) {
+                    output.write(buffer, 0, read);
+                    written += read;
+                }
+                output.flush();
+            }
+            if (written <= 0) throw new IOException("ComfyUI output is empty");
+            if (destination.exists() && !destination.delete()) throw new IOException("Could not replace cached output");
+            if (!temporary.renameTo(destination)) throw new IOException("Could not finalize cached output");
+        } finally {
+            if (temporary.exists() && !temporary.equals(destination)) temporary.delete();
         }
     }
 
