@@ -11,7 +11,6 @@ import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 public final class ComfyRepository {
     private final ComfyStore store;
@@ -24,6 +23,7 @@ public final class ComfyRepository {
         this.client = new ComfyApiClient(profile);
         this.objectInfo = store.objectInfo();
         this.currentWorkflow = store.currentWorkflow();
+        normalizeCurrentWorkflow();
     }
 
     public ComfyApiClient client() { return client; }
@@ -43,6 +43,7 @@ public final class ComfyRepository {
         JSONObject latestObjectInfo = client.objectInfo();
         objectInfo = latestObjectInfo;
         store.saveObjectInfo(latestObjectInfo);
+        normalizeCurrentWorkflow();
         ServerProfile resolved = profile().withResolvedBaseUrl(client.resolvedBaseUrl());
         store.saveActiveProfile(resolved);
         client.setProfile(resolved);
@@ -129,24 +130,29 @@ public final class ComfyRepository {
             store.writeBytes(cached, raw.getBytes(StandardCharsets.UTF_8));
         }
         WorkflowDocument document = WorkflowDocument.importRaw(new JSONObject(raw), objectInfo, template.title);
+        materialize(document);
         setCurrentWorkflow(document);
         return document;
     }
 
     public WorkflowDocument importWorkflow(String raw, String sourceName) throws Exception {
         WorkflowDocument document = WorkflowDocument.importRaw(new JSONObject(raw), objectInfo, sourceName);
+        materialize(document);
         setCurrentWorkflow(document);
         return document;
     }
 
     public synchronized void setCurrentWorkflow(WorkflowDocument document) {
         currentWorkflow = document == null ? WorkflowDocument.empty() : document;
+        materialize(currentWorkflow);
         store.saveCurrentWorkflow(currentWorkflow);
     }
 
     public String queueCurrentWorkflow(String clientId) throws Exception {
         WorkflowDocument document = currentWorkflow;
         if (document == null || document.isEmpty()) throw new IllegalStateException("No workflow loaded");
+        materialize(document);
+        store.saveCurrentWorkflow(document);
         JSONObject result = client.prompt(document.apiPrompt(), clientId);
         String promptId = result.optString("prompt_id", "");
         if (promptId.isEmpty()) throw new IllegalStateException("ComfyUI did not return prompt_id");
@@ -186,9 +192,7 @@ public final class ComfyRepository {
         return out;
     }
 
-    public JSONArray loadSavedOutputs() {
-        return store.outputs();
-    }
+    public JSONArray loadSavedOutputs() { return store.outputs(); }
 
     public void saveOutputs(List<OutputAsset> assets) {
         JSONArray arr = new JSONArray();
@@ -211,6 +215,17 @@ public final class ComfyRepository {
             } catch (Exception ignored) {}
         }
         throw new IllegalStateException("Template preview was not found");
+    }
+
+    private void normalizeCurrentWorkflow() {
+        WorkflowDocument document = currentWorkflow;
+        if (document == null || document.isEmpty()) return;
+        if (materialize(document) > 0) store.saveCurrentWorkflow(document);
+    }
+
+    private int materialize(WorkflowDocument document) {
+        if (document == null || document.isEmpty() || objectInfo == null || objectInfo.length() == 0) return 0;
+        return new NodeSchemaRegistry(objectInfo).materializeMissingDefaults(document.apiPrompt());
     }
 
     private void addAssets(ArrayList<OutputAsset> out, String promptId, String nodeId, JSONArray files, OutputAsset.Kind kind) {
