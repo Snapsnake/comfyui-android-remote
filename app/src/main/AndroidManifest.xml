@@ -9,6 +9,11 @@
         android:resizeableActivity="false"
         android:hardwareAccelerated="true">
         <activity
+            android:name=".WorkflowExportActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/ExportTheme" />
+        <activity
             android:name=".NativeComfyActivity"
             android:exported="true"
             android:screenOrientation="portrait"
