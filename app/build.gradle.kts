@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 54
-        versionName = "0.14.3-source-navigation-export"
+        versionCode = 55
+        versionName = "0.14.4-dynamic-inputs"
     }
 
     compileOptions {
@@ -22,4 +22,6 @@ android {
 
 dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20250517")
 }
