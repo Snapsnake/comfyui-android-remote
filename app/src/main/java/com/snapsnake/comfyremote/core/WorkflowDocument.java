@@ -24,9 +24,7 @@ public final class WorkflowDocument {
     public static WorkflowDocument importRaw(JSONObject raw, JSONObject objectInfo, String sourceName) throws Exception {
         JSONObject source = raw == null ? new JSONObject() : raw;
 
-        // Exact round-trip format written by the Android client. This must be
-        // detected before frontend conversion so edited API values are not
-        // replaced by older widget values from the preserved original graph.
+        // Exact round-trip bundle written by the Android client.
         JSONObject bundledPrompt = source.optJSONObject("apiPrompt");
         JSONObject bundledOriginal = source.optJSONObject("original");
         if (bundledPrompt != null && looksApiPrompt(bundledPrompt)) {
@@ -35,6 +33,22 @@ public final class WorkflowDocument {
                     bundledPrompt,
                     source.optString("sourceName", sourceName == null ? "" : sourceName),
                     source.optLong("updatedAt", System.currentTimeMillis())
+            );
+        }
+
+        // Frontend export written by this app. The complete frontend graph is
+        // retained as the original, while the embedded API prompt carries the
+        // exact current values. Ordinary third-party workflows do not use this
+        // marker and continue through the normal converter.
+        JSONObject extra = source.optJSONObject("extra");
+        JSONObject mobile = extra == null ? null : extra.optJSONObject("comfyui_mobile");
+        JSONObject embeddedPrompt = extra == null ? null : extra.optJSONObject("prompt");
+        if (mobile != null && embeddedPrompt != null && looksApiPrompt(embeddedPrompt)) {
+            return new WorkflowDocument(
+                    source,
+                    embeddedPrompt,
+                    mobile.optString("sourceName", sourceName == null ? "" : sourceName),
+                    mobile.optLong("updatedAt", System.currentTimeMillis())
             );
         }
 
