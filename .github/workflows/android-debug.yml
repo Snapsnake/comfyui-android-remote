@@ -31,6 +31,14 @@ jobs:
       - name: Run unit tests
         run: gradle testDebugUnitTest --stacktrace
 
+      - name: Upload unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-results
+          path: app/build/test-results/testDebugUnitTest
+          if-no-files-found: ignore
+
       - name: Build debug APK
         run: gradle assembleDebug --stacktrace
 

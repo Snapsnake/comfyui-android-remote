@@ -5,39 +5,53 @@ import com.snapsnake.comfyremote.ComfyWorkflowConverter;
 import org.json.JSONObject;
 
 public final class WorkflowDocument {
+    private static final int CURRENT_WIDGET_MAPPING_VERSION = 2;
+
     private final JSONObject original;
     private final JSONObject apiPrompt;
     private final String sourceName;
     private final long updatedAt;
+    private final int widgetMappingVersion;
 
     public WorkflowDocument(JSONObject original, JSONObject apiPrompt, String sourceName, long updatedAt) {
+        this(original, apiPrompt, sourceName, updatedAt, CURRENT_WIDGET_MAPPING_VERSION);
+    }
+
+    private WorkflowDocument(JSONObject original, JSONObject apiPrompt, String sourceName,
+                             long updatedAt, int widgetMappingVersion) {
         this.original = cloneObject(original);
         this.apiPrompt = cloneObject(apiPrompt);
         this.sourceName = sourceName == null ? "" : sourceName;
         this.updatedAt = updatedAt <= 0 ? System.currentTimeMillis() : updatedAt;
+        this.widgetMappingVersion = Math.max(0, widgetMappingVersion);
     }
 
     public static WorkflowDocument empty() {
-        return new WorkflowDocument(new JSONObject(), new JSONObject(), "", System.currentTimeMillis());
+        return new WorkflowDocument(new JSONObject(), new JSONObject(), "",
+                System.currentTimeMillis(), CURRENT_WIDGET_MAPPING_VERSION);
     }
 
     public static WorkflowDocument importRaw(JSONObject raw, JSONObject objectInfo, String sourceName) throws Exception {
         JSONObject source = raw == null ? new JSONObject() : raw;
+        JSONObject schema = objectInfo == null ? new JSONObject() : objectInfo;
 
         JSONObject bundledPrompt = source.optJSONObject("apiPrompt");
         JSONObject bundledOriginal = source.optJSONObject("original");
         if (bundledPrompt != null && looksApiPrompt(bundledPrompt)) {
             JSONObject original = bundledOriginal == null ? new JSONObject() : bundledOriginal;
-            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
-                    bundledPrompt,
+            int incomingMapping = source.optInt("widgetMappingVersion", 0);
+            JSONObject repaired = rebuildAndMerge(
                     original,
-                    objectInfo == null ? new JSONObject() : objectInfo
+                    bundledPrompt,
+                    schema,
+                    incomingMapping < CURRENT_WIDGET_MAPPING_VERSION
             );
             return new WorkflowDocument(
                     original,
                     repaired,
                     source.optString("sourceName", sourceName == null ? "" : sourceName),
-                    source.optLong("updatedAt", System.currentTimeMillis())
+                    source.optLong("updatedAt", System.currentTimeMillis()),
+                    CURRENT_WIDGET_MAPPING_VERSION
             );
         }
 
@@ -45,23 +59,28 @@ public final class WorkflowDocument {
         JSONObject mobile = extra == null ? null : extra.optJSONObject("comfyui_mobile");
         JSONObject embeddedPrompt = extra == null ? null : extra.optJSONObject("prompt");
         if (mobile != null && embeddedPrompt != null && looksApiPrompt(embeddedPrompt)) {
-            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
-                    embeddedPrompt,
+            int incomingMapping = mobile.optInt("widgetMappingVersion", 0);
+            JSONObject repaired = rebuildAndMerge(
                     source,
-                    objectInfo == null ? new JSONObject() : objectInfo
+                    embeddedPrompt,
+                    schema,
+                    incomingMapping < CURRENT_WIDGET_MAPPING_VERSION
             );
             return new WorkflowDocument(
                     source,
                     repaired,
                     mobile.optString("sourceName", sourceName == null ? "" : sourceName),
-                    mobile.optLong("updatedAt", System.currentTimeMillis())
+                    mobile.optLong("updatedAt", System.currentTimeMillis()),
+                    CURRENT_WIDGET_MAPPING_VERSION
             );
         }
 
-        JSONObject result = ComfyWorkflowConverter.importResult(source, objectInfo == null ? new JSONObject() : objectInfo);
+        JSONObject result = ComfyWorkflowConverter.importResult(source, schema);
         JSONObject prompt = result.optJSONObject("prompt");
         if (prompt == null) prompt = new JSONObject(result.optString("prompt", "{}"));
-        return new WorkflowDocument(source, prompt, sourceName, System.currentTimeMillis());
+        prompt = FrontendWidgetValueMapper.correctFreshPrompt(source, prompt, schema);
+        return new WorkflowDocument(source, prompt, sourceName, System.currentTimeMillis(),
+                CURRENT_WIDGET_MAPPING_VERSION);
     }
 
     public static WorkflowDocument fromJson(JSONObject saved) {
@@ -73,15 +92,17 @@ public final class WorkflowDocument {
                 original == null ? new JSONObject() : original,
                 prompt == null ? new JSONObject() : prompt,
                 saved.optString("sourceName", saved.optString("displayName", "")),
-                saved.optLong("updatedAt", saved.optLong("savedAt", System.currentTimeMillis()))
+                saved.optLong("updatedAt", saved.optLong("savedAt", System.currentTimeMillis())),
+                saved.optInt("widgetMappingVersion", 0)
         );
     }
 
     public JSONObject toJson() {
         JSONObject out = new JSONObject();
         try {
-            out.put("formatVersion", 3);
+            out.put("formatVersion", 4);
             out.put("kind", "comfyui-mobile-workflow");
+            out.put("widgetMappingVersion", widgetMappingVersion);
             out.put("original", cloneObject(original));
             out.put("apiPrompt", cloneObject(apiPrompt));
             out.put("sourceName", sourceName);
@@ -105,7 +126,8 @@ public final class WorkflowDocument {
                 mobile = new JSONObject();
                 extra.put("comfyui_mobile", mobile);
             }
-            mobile.put("formatVersion", 3);
+            mobile.put("formatVersion", 4);
+            mobile.put("widgetMappingVersion", widgetMappingVersion);
             mobile.put("sourceName", sourceName);
             mobile.put("updatedAt", updatedAt);
             mobile.put("exportedAt", System.currentTimeMillis());
@@ -115,14 +137,43 @@ public final class WorkflowDocument {
 
     public WorkflowDocument repaired(JSONObject objectInfo) {
         try {
-            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
-                    apiPrompt,
+            JSONObject schema = objectInfo == null ? new JSONObject() : objectInfo;
+            JSONObject repaired = rebuildAndMerge(
                     original,
-                    objectInfo == null ? new JSONObject() : objectInfo
+                    apiPrompt,
+                    schema,
+                    widgetMappingVersion < CURRENT_WIDGET_MAPPING_VERSION
             );
-            return new WorkflowDocument(original, repaired, sourceName, System.currentTimeMillis());
+            return new WorkflowDocument(original, repaired, sourceName,
+                    System.currentTimeMillis(), CURRENT_WIDGET_MAPPING_VERSION);
         } catch (Exception ignored) {
             return snapshot();
+        }
+    }
+
+    private static JSONObject rebuildAndMerge(JSONObject original,
+                                              JSONObject currentPrompt,
+                                              JSONObject objectInfo,
+                                              boolean sanitizeLegacy) throws Exception {
+        if (original == null || original.length() == 0
+                || objectInfo == null || objectInfo.length() == 0) {
+            return ComfyWorkflowConverter.repairPrompt(
+                    currentPrompt,
+                    original == null ? new JSONObject() : original,
+                    objectInfo == null ? new JSONObject() : objectInfo
+            );
+        }
+
+        try {
+            JSONObject fresh = ComfyWorkflowConverter.toApiPrompt(original, objectInfo);
+            fresh = FrontendWidgetValueMapper.correctFreshPrompt(original, fresh, objectInfo);
+            JSONObject current = cloneObject(currentPrompt);
+            if (sanitizeLegacy) {
+                current = FrontendWidgetValueMapper.sanitizeLegacyCurrent(original, current, objectInfo);
+            }
+            return ComfyWorkflowConverter.mergeValidPromptValues(fresh, current, objectInfo);
+        } catch (Exception ignored) {
+            return ComfyWorkflowConverter.repairPrompt(currentPrompt, original, objectInfo);
         }
     }
 
@@ -135,11 +186,13 @@ public final class WorkflowDocument {
     public int nodeCount() { return apiPrompt.length(); }
 
     public WorkflowDocument renamed(String name) {
-        return new WorkflowDocument(original, apiPrompt, name, System.currentTimeMillis());
+        return new WorkflowDocument(original, apiPrompt, name, System.currentTimeMillis(),
+                widgetMappingVersion);
     }
 
     public WorkflowDocument snapshot() {
-        return new WorkflowDocument(original, apiPrompt, sourceName, System.currentTimeMillis());
+        return new WorkflowDocument(original, apiPrompt, sourceName, System.currentTimeMillis(),
+                widgetMappingVersion);
     }
 
     private static boolean looksApiPrompt(JSONObject object) {
