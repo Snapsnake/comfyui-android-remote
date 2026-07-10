@@ -6,12 +6,10 @@ import org.json.JSONObject;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Reconstructs positional frontend widgets_values using the same schema order
@@ -28,8 +26,8 @@ public final class FrontendWidgetValueMapper {
     private FrontendWidgetValueMapper() {}
 
     public static JSONObject correctFreshPrompt(JSONObject frontendRoot,
-                                                JSONObject apiPrompt,
-                                                JSONObject objectInfo) {
+                                                 JSONObject apiPrompt,
+                                                 JSONObject objectInfo) {
         JSONObject corrected = cloneObject(apiPrompt);
         if (corrected.length() == 0 || objectInfo == null || objectInfo.length() == 0) return corrected;
         JSONObject workflow = frontendWorkflow(frontendRoot);
@@ -45,8 +43,8 @@ public final class FrontendWidgetValueMapper {
      * touched. Graph links and non-widget fields are preserved.
      */
     public static JSONObject sanitizeLegacyCurrent(JSONObject frontendRoot,
-                                                   JSONObject currentPrompt,
-                                                   JSONObject objectInfo) {
+                                                    JSONObject currentPrompt,
+                                                    JSONObject objectInfo) {
         JSONObject sanitized = cloneObject(currentPrompt);
         if (sanitized.length() == 0 || objectInfo == null || objectInfo.length() == 0) return sanitized;
         JSONObject workflow = frontendWorkflow(frontendRoot);
@@ -92,27 +90,32 @@ public final class FrontendWidgetValueMapper {
         JSONObject inputSchema = definition == null ? null : definition.optJSONObject("input");
         JSONObject apiInputs = apiNode.optJSONObject("inputs");
         JSONArray values = frontendNode.optJSONArray("widgets_values");
+        boolean hasLinkedWidget = hasLinkedWidgetInput(frontendNode);
         if (inputSchema == null || apiInputs == null || values == null || values.length() == 0) {
-            applyNamedWidgets(frontendNode, apiInputs, sanitizeLegacy);
+            if (!sanitizeLegacy || hasLinkedWidget) {
+                applyNamedWidgets(frontendNode, apiInputs, sanitizeLegacy);
+            }
             return;
         }
 
+        ArrayList<String> frontendWidgetOrder = frontendWidgetInputOrder(frontendNode);
         ArrayList<Binding> bindings = new ArrayList<>();
         Cursor cursor = new Cursor();
         JSONObject inputOrder = definition.optJSONObject("input_order");
         collectSection(bindings, inputSchema.optJSONObject("required"),
                 inputOrder == null ? null : inputOrder.optJSONArray("required"),
-                "", values, cursor);
+                "", values, cursor, frontendWidgetOrder);
         collectSection(bindings, inputSchema.optJSONObject("optional"),
                 inputOrder == null ? null : inputOrder.optJSONArray("optional"),
-                "", values, cursor);
+                "", values, cursor, frontendWidgetOrder);
 
         if (sanitizeLegacy) {
-            if (!hasLinkedWidgetInput(frontendNode)) return;
+            if (!hasLinkedWidget) return;
             for (Binding binding : bindings) {
                 Object current = apiInputs.opt(binding.name);
                 if (!isConnection(current)) apiInputs.remove(binding.name);
             }
+            applyNamedWidgets(frontendNode, apiInputs, true);
             return;
         }
 
@@ -131,9 +134,12 @@ public final class FrontendWidgetValueMapper {
                                        JSONArray explicitOrder,
                                        String prefix,
                                        JSONArray values,
-                                       Cursor cursor) {
+                                       Cursor cursor,
+                                       ArrayList<String> frontendWidgetOrder) {
         if (section == null) return;
-        for (String local : orderedKeys(section, explicitOrder)) {
+        ArrayList<String> keys = orderedKeys(section, explicitOrder, prefix, frontendWidgetOrder);
+        for (int index = 0; index < keys.size(); index++) {
+            String local = keys.get(index);
             JSONArray spec = section.optJSONArray(local);
             if (spec == null) continue;
             String name = prefix + local;
@@ -141,41 +147,109 @@ public final class FrontendWidgetValueMapper {
             JSONObject config = spec.optJSONObject(1);
             String type = String.valueOf(first == null ? "" : first).toUpperCase(Locale.US);
 
-            if (DYNAMIC_COMBO.equals(type)) {
-                if (cursor.index >= values.length()) return;
-                Object selected = values.opt(cursor.index++);
-                out.add(new Binding(name, selected));
-                JSONObject option = dynamicOption(config, selected);
-                JSONObject nested = option == null ? null : option.optJSONObject("inputs");
-                JSONObject nestedOrder = option == null ? null : option.optJSONObject("input_order");
-                collectSection(out, nested == null ? null : nested.optJSONObject("required"),
-                        nestedOrder == null ? null : nestedOrder.optJSONArray("required"),
-                        name + ".", values, cursor);
-                collectSection(out, nested == null ? null : nested.optJSONObject("optional"),
-                        nestedOrder == null ? null : nestedOrder.optJSONArray("optional"),
-                        name + ".", values, cursor);
-                continue;
-            }
-
             if (DYNAMIC_SLOT.equals(type)) {
                 JSONObject nested = config == null ? null : config.optJSONObject("inputs");
                 JSONObject nestedOrder = config == null ? null : config.optJSONObject("input_order");
                 collectSection(out, nested == null ? null : nested.optJSONObject("required"),
                         nestedOrder == null ? null : nestedOrder.optJSONArray("required"),
-                        name + ".", values, cursor);
+                        name + ".", values, cursor, frontendWidgetOrder);
                 collectSection(out, nested == null ? null : nested.optJSONObject("optional"),
                         nestedOrder == null ? null : nestedOrder.optJSONArray("optional"),
-                        name + ".", values, cursor);
+                        name + ".", values, cursor, frontendWidgetOrder);
                 continue;
             }
 
-            if (!isWidgetSpec(first, type, config)) continue;
+            boolean consumesValue = DYNAMIC_COMBO.equals(type) || isWidgetSpec(first, type, config);
+            if (!consumesValue) continue;
             if (cursor.index >= values.length()) return;
-            out.add(new Binding(name, values.opt(cursor.index++)));
+
+            Object nextValue = values.opt(cursor.index);
+            if (!valueFitsSpec(spec, nextValue)) {
+                int matchingIndex = findMatchingKey(keys, index + 1, section, nextValue);
+                if (matchingIndex >= 0) {
+                    String matching = keys.remove(matchingIndex);
+                    keys.add(index, matching);
+                    local = matching;
+                    spec = section.optJSONArray(local);
+                    name = prefix + local;
+                    first = spec == null ? null : spec.opt(0);
+                    config = spec == null ? null : spec.optJSONObject(1);
+                    type = String.valueOf(first == null ? "" : first).toUpperCase(Locale.US);
+                }
+            }
+
+            Object value = values.opt(cursor.index++);
+            out.add(new Binding(name, value));
+
+            if (DYNAMIC_COMBO.equals(type)) {
+                JSONObject option = dynamicOption(config, value);
+                JSONObject nested = option == null ? null : option.optJSONObject("inputs");
+                JSONObject nestedOrder = option == null ? null : option.optJSONObject("input_order");
+                collectSection(out, nested == null ? null : nested.optJSONObject("required"),
+                        nestedOrder == null ? null : nestedOrder.optJSONArray("required"),
+                        name + ".", values, cursor, frontendWidgetOrder);
+                collectSection(out, nested == null ? null : nested.optJSONObject("optional"),
+                        nestedOrder == null ? null : nestedOrder.optJSONArray("optional"),
+                        name + ".", values, cursor, frontendWidgetOrder);
+            }
         }
     }
 
-    private static ArrayList<String> orderedKeys(JSONObject section, JSONArray explicitOrder) {
+    private static int findMatchingKey(ArrayList<String> keys,
+                                       int start,
+                                       JSONObject section,
+                                       Object value) {
+        for (int i = start; i < keys.size(); i++) {
+            JSONArray candidate = section.optJSONArray(keys.get(i));
+            if (candidate == null) continue;
+            String type = String.valueOf(candidate.opt(0)).toUpperCase(Locale.US);
+            if (DYNAMIC_SLOT.equals(type)) continue;
+            if (valueFitsSpec(candidate, value)) return i;
+        }
+        return -1;
+    }
+
+    private static boolean valueFitsSpec(JSONArray spec, Object value) {
+        if (spec == null || value == null || value == JSONObject.NULL) return false;
+        Object first = spec.opt(0);
+        JSONObject config = spec.optJSONObject(1);
+        String type = String.valueOf(first == null ? "" : first).toUpperCase(Locale.US);
+        if (DYNAMIC_COMBO.equals(type)) return dynamicOption(config, value) != null;
+        if (first instanceof JSONArray) return arrayContains((JSONArray) first, value);
+        if ("BOOLEAN".equals(type) || "BOOL".equals(type)) return value instanceof Boolean;
+        if ("INT".equals(type)) {
+            if (!(value instanceof Number)) return false;
+            double number = ((Number) value).doubleValue();
+            return Math.rint(number) == number;
+        }
+        if ("FLOAT".equals(type) || "NUMBER".equals(type)) return value instanceof Number;
+        if ("STRING".equals(type)) return value instanceof String;
+        if ("COMBO".equals(type)) {
+            JSONArray options = config == null ? null : config.optJSONArray("options");
+            return options == null || arrayContains(options, value);
+        }
+        if (config != null && config.has("default")) {
+            Object fallback = config.opt("default");
+            if (fallback instanceof Boolean) return value instanceof Boolean;
+            if (fallback instanceof Number) return value instanceof Number;
+            if (fallback instanceof String) return value instanceof String;
+        }
+        return true;
+    }
+
+    private static boolean arrayContains(JSONArray array, Object value) {
+        if (array == null) return false;
+        String expected = String.valueOf(value);
+        for (int i = 0; i < array.length(); i++) {
+            if (expected.equals(String.valueOf(array.opt(i)))) return true;
+        }
+        return false;
+    }
+
+    private static ArrayList<String> orderedKeys(JSONObject section,
+                                                 JSONArray explicitOrder,
+                                                 String prefix,
+                                                 ArrayList<String> frontendWidgetOrder) {
         LinkedHashSet<String> ordered = new LinkedHashSet<>();
         if (explicitOrder != null) {
             for (int i = 0; i < explicitOrder.length(); i++) {
@@ -183,9 +257,32 @@ public final class FrontendWidgetValueMapper {
                 if (!key.isEmpty() && section.has(key)) ordered.add(key);
             }
         }
+        if (explicitOrder == null && frontendWidgetOrder != null) {
+            for (String fullName : frontendWidgetOrder) {
+                if (!fullName.startsWith(prefix)) continue;
+                String remainder = fullName.substring(prefix.length());
+                if (remainder.indexOf('.') >= 0) continue;
+                if (section.has(remainder)) ordered.add(remainder);
+            }
+        }
         Iterator<String> keys = section.keys();
         while (keys.hasNext()) ordered.add(keys.next());
         return new ArrayList<>(ordered);
+    }
+
+    private static ArrayList<String> frontendWidgetInputOrder(JSONObject node) {
+        ArrayList<String> names = new ArrayList<>();
+        JSONArray inputs = node.optJSONArray("inputs");
+        if (inputs == null) return names;
+        for (int i = 0; i < inputs.length(); i++) {
+            JSONObject input = inputs.optJSONObject(i);
+            if (input == null) continue;
+            JSONObject widget = input.optJSONObject("widget");
+            if (widget == null) continue;
+            String name = widget.optString("name", input.optString("name", ""));
+            if (!name.isEmpty()) names.add(name);
+        }
+        return names;
     }
 
     private static boolean isWidgetSpec(Object first, String type, JSONObject config) {
