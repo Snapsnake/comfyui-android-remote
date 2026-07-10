@@ -18,7 +18,7 @@ import java.util.WeakHashMap;
  *
  * The current native activity predates a public navigation interface, so this
  * bridge talks to its existing selectedNodeId/render state without mutating
- * workflow data. It can be replaced by a direct interface later without
+ * workflow links. It can be replaced by a direct interface later without
  * changing field rendering or connection semantics.
  */
 public final class NodeNavigationBridge {
@@ -39,6 +39,7 @@ public final class NodeNavigationBridge {
         Activity activity = activity(context);
         if (activity == null || empty(sourceNodeId) || !nodeExists(activity, sourceNodeId)) return false;
         try {
+            persistCurrentEdits(activity);
             String current = empty(currentNodeId) ? selectedNodeId(activity) : currentNodeId;
             synchronized (HISTORY) {
                 HISTORY.computeIfAbsent(activity, key -> new ArrayDeque<>())
@@ -70,6 +71,7 @@ public final class NodeNavigationBridge {
                 stack.pop();
             }
             if (empty(entry.from) || !nodeExists(activity, entry.from)) return false;
+            persistCurrentEdits(activity);
             setSelectedNodeId(activity, entry.from);
             invokeRender(activity);
             return true;
@@ -110,6 +112,14 @@ public final class NodeNavigationBridge {
         Field field = findField(activity.getClass(), "selectedNodeId");
         field.setAccessible(true);
         field.set(activity, nodeId);
+    }
+
+    private static void persistCurrentEdits(Activity activity) {
+        try {
+            Method method = findMethod(activity.getClass(), "saveWorkflowIfDirty");
+            method.setAccessible(true);
+            method.invoke(activity);
+        } catch (Exception ignored) {}
     }
 
     private static void invokeRender(Activity activity) throws Exception {
