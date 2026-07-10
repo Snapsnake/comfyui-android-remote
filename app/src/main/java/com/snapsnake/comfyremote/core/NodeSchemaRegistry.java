@@ -87,6 +87,30 @@ public final class NodeSchemaRegistry {
         return name.trim().isEmpty() ? classType : name;
     }
 
+    public int materializeMissingDefaults(JSONObject prompt) {
+        if (prompt == null) return 0;
+        int added = 0;
+        Iterator<String> ids = prompt.keys();
+        while (ids.hasNext()) {
+            String id = ids.next();
+            JSONObject node = prompt.optJSONObject(id);
+            if (node == null) continue;
+            JSONObject inputs = node.optJSONObject("inputs");
+            try {
+                if (inputs == null) {
+                    inputs = new JSONObject();
+                    node.put("inputs", inputs);
+                }
+                for (FieldSpec field : fieldsForNode(id, node)) {
+                    if (field.connected || inputs.has(field.key)) continue;
+                    inputs.put(field.key, field.value == JSONObject.NULL ? "" : field.value);
+                    added++;
+                }
+            } catch (Exception ignored) {}
+        }
+        return added;
+    }
+
     private final class CoreSchemaAdapter implements NodeAdapter {
         @Override public boolean supports(String classType, JSONObject definition) { return true; }
 
