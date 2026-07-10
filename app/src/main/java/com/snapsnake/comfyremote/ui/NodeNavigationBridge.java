@@ -53,6 +53,19 @@ public final class NodeNavigationBridge {
         }
     }
 
+    /** Rebuilds the current node screen after a schema-changing widget selection. */
+    public static boolean refreshCurrentNode(Context context) {
+        Activity activity = activity(context);
+        if (activity == null) return false;
+        try {
+            persistCurrentEdits(activity);
+            invokeRender(activity);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     /** Returns true when an upstream-navigation step was consumed. */
     public static boolean goBack(Context context) {
         Activity activity = activity(context);
