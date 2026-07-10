@@ -1,1 +1,0 @@
-Temporary note: the Android picker may return a document id without an image extension. Uploads must use the OpenableColumns display name plus MIME-derived extension, preserve the server-returned name/subfolder, and verify the uploaded input before queueing.
