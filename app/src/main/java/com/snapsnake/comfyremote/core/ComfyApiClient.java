@@ -50,6 +50,7 @@ public final class ComfyApiClient {
 
     private volatile ServerProfile profile;
     private volatile String resolvedBaseUrl = "";
+    private volatile JSONObject objectInfoCache = new JSONObject();
 
     public ComfyApiClient(ServerProfile profile) {
         this.profile = profile;
@@ -58,6 +59,7 @@ public final class ComfyApiClient {
     public synchronized void setProfile(ServerProfile next) {
         this.profile = next;
         this.resolvedBaseUrl = "";
+        this.objectInfoCache = new JSONObject();
     }
 
     public ServerProfile profile() { return profile; }
@@ -69,7 +71,13 @@ public final class ComfyApiClient {
     }
 
     public JSONObject systemStats() throws Exception { return getJson("/system_stats"); }
-    public JSONObject objectInfo() throws Exception { return getJson("/api/object_info"); }
+
+    public JSONObject objectInfo() throws Exception {
+        JSONObject latest = getJson("/api/object_info");
+        objectInfoCache = cloneObject(latest);
+        return latest;
+    }
+
     public JSONObject queue() throws Exception { return getJson("/queue"); }
     public JSONObject history() throws Exception { return getJson("/history"); }
     public JSONObject history(String promptId) throws Exception { return getJson("/history/" + enc(promptId)); }
@@ -77,8 +85,11 @@ public final class ComfyApiClient {
     public JSONObject workflowTemplates() throws Exception { return getJson("/api/workflow_templates"); }
 
     public JSONObject prompt(JSONObject apiPrompt, String clientId) throws Exception {
+        JSONObject schema = objectInfoCache;
+        if (schema == null || schema.length() == 0) schema = objectInfo();
+        JSONObject executablePrompt = DynamicExecutionPrompt.pack(apiPrompt, schema);
         JSONObject payload = new JSONObject();
-        payload.put("prompt", apiPrompt);
+        payload.put("prompt", executablePrompt);
         payload.put("client_id", clientId);
         return postJson("/prompt", payload);
     }
@@ -356,6 +367,12 @@ public final class ComfyApiClient {
             String cookie = CookieManager.getInstance().getCookie(url);
             if (cookie != null && !cookie.trim().isEmpty()) request.header("Cookie", cookie);
         } catch (Exception ignored) {}
+    }
+
+    private static JSONObject cloneObject(JSONObject object) {
+        if (object == null) return new JSONObject();
+        try { return new JSONObject(object.toString()); }
+        catch (Exception e) { return new JSONObject(); }
     }
 
     private static String enc(String value) {

@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 57
-        versionName = "0.14.6-native-outputs"
+        versionCode = 58
+        versionName = "0.14.7-dynamic-execution"
     }
 
     compileOptions {
