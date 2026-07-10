@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 51
-        versionName = "0.14.0-native-foundation"
+        versionCode = 52
+        versionName = "0.14.1-connected-fields"
     }
 
     compileOptions {
