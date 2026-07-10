@@ -6,10 +6,8 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 public final class NodeSchemaRegistry {
     public enum Kind { STRING, INTEGER, FLOAT, BOOLEAN, COMBO, FILE, UNKNOWN }
@@ -100,8 +98,7 @@ public final class NodeSchemaRegistry {
             addSection(out, nodeId, node, required, true);
             addSection(out, nodeId, node, optional, false);
 
-            // Keep primitive values exposed by API prompts even when an older/custom node omits schema metadata.
-            // This is a compatibility path, not a fabricated field: only values that actually exist are shown.
+            // Compatibility path for existing primitive API-prompt values omitted by old/custom schemas.
             JSONObject inputs = node.optJSONObject("inputs");
             if (inputs != null) {
                 Iterator<String> keys = inputs.keys();
@@ -149,7 +146,8 @@ public final class NodeSchemaRegistry {
         String type = String.valueOf(typeRaw == null ? "" : typeRaw).toUpperCase(Locale.US);
         if ("STRING".equals(type)) {
             String lower = key == null ? "" : key.toLowerCase(Locale.US);
-            if (lower.equals("image") || lower.endsWith("_image") || lower.contains("filename") || lower.contains("file_path")) return Kind.FILE;
+            boolean upload = config != null && (config.optBoolean("image_upload", false) || config.optBoolean("upload", false));
+            if (upload || lower.equals("image") || lower.equals("mask") || lower.equals("file") || lower.equals("upload") || lower.endsWith("_image") || lower.endsWith("_mask")) return Kind.FILE;
             return Kind.STRING;
         }
         if ("INT".equals(type)) return Kind.INTEGER;
