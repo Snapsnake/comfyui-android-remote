@@ -5,24 +5,30 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Set;
 
 /**
- * Converts the app's editable dotted representation of ComfyUI v3 dynamic
- * fields into the nested dictionaries expected by node execute methods.
+ * Produces the flat prompt format used by the official ComfyUI frontend for
+ * v3 dynamic inputs.
  *
- * The editor intentionally keeps paths such as resize_type.width flat because
- * they are convenient to render and update independently. They must never be
- * sent as top-level keyword arguments. Immediately before /prompt, this class
- * converts them to:
+ * ComfyUI expects the selector and its children as separate prompt keys:
  *
- * resize_type: {
- *   resize_type: "scale dimensions",
- *   width: ...,
- *   height: ...,
- *   crop: ...
- * }
+ *   resize_type = "scale dimensions"
+ *   resize_type.width = ...
+ *   resize_type.height = ...
+ *   resize_type.crop = ...
+ *
+ * The backend uses the live node schema to rebuild the nested resize_type
+ * dictionary before calling the node's execute method. Sending a JSON object
+ * directly as resize_type makes validation discard the dynamic input.
+ *
+ * Some exported frontend workflows omit the dynamic selector input slot while
+ * retaining its first widgets_values entry. Older app builds then shifted that
+ * value into another field. This class repairs an invalid/missing selector by
+ * matching the present dotted child paths to the best schema option.
  */
 public final class DynamicExecutionPrompt {
     private static final String DYNAMIC_COMBO = "COMFY_DYNAMICCOMBO_V3";
@@ -30,6 +36,10 @@ public final class DynamicExecutionPrompt {
 
     private DynamicExecutionPrompt() {}
 
+    /**
+     * Kept as pack() for binary/source compatibility with 0.14.7. The result is
+     * deliberately flat, not nested.
+     */
     public static JSONObject pack(JSONObject editablePrompt, JSONObject objectInfo) throws JSONException {
         JSONObject out = cloneObject(editablePrompt);
         if (out.length() == 0 || objectInfo == null || objectInfo.length() == 0) return out;
@@ -42,132 +52,150 @@ public final class DynamicExecutionPrompt {
             JSONObject definition = objectInfo.optJSONObject(node.optString("class_type", ""));
             JSONObject schema = definition == null ? null : definition.optJSONObject("input");
             if (inputs == null || schema == null) continue;
-            packTopLevelSection(inputs, schema.optJSONObject("required"));
-            packTopLevelSection(inputs, schema.optJSONObject("optional"));
+            normalizeSection(inputs, schema.optJSONObject("required"), "");
+            normalizeSection(inputs, schema.optJSONObject("optional"), "");
         }
         return out;
     }
 
-    private static void packTopLevelSection(JSONObject flatInputs, JSONObject section) throws JSONException {
+    private static void normalizeSection(JSONObject inputs, JSONObject section,
+                                         String prefix) throws JSONException {
         if (section == null) return;
         Iterator<String> keys = section.keys();
         while (keys.hasNext()) {
             String local = keys.next();
+            String flatKey = prefix + local;
             JSONArray spec = section.optJSONArray(local);
             if (spec == null) continue;
             String type = typeOf(spec);
             JSONObject config = spec.optJSONObject(1);
-            if (DYNAMIC_COMBO.equals(type)) {
-                Object raw = flatInputs.opt(local);
-                JSONObject packed = buildDynamicCombo(flatInputs, local, local, config, raw);
-                removePrefixed(flatInputs, local + ".");
-                flatInputs.put(local, packed);
-            } else if (DYNAMIC_SLOT.equals(type)) {
-                Object raw = flatInputs.opt(local);
-                JSONObject packed = buildDynamicSlot(flatInputs, local, config, raw);
-                removePrefixed(flatInputs, local + ".");
-                flatInputs.put(local, packed);
-            }
-        }
-    }
-
-    private static JSONObject buildDynamicCombo(JSONObject flatInputs, String flatKey,
-                                                String selectorName, JSONObject config,
-                                                Object rawValue) throws JSONException {
-        JSONObject existing = rawValue instanceof JSONObject ? cloneObject((JSONObject) rawValue) : new JSONObject();
-        Object selected;
-        if (existing.has(selectorName)) selected = existing.opt(selectorName);
-        else if (existing.has("value")) selected = existing.opt("value");
-        else if (rawValue != null && rawValue != JSONObject.NULL && !(rawValue instanceof JSONObject)) selected = rawValue;
-        else selected = firstDynamicOptionKey(config);
-
-        JSONObject packed = new JSONObject();
-        packed.put(selectorName, cloneValue(selected == null ? "" : selected));
-
-        JSONObject option = dynamicOption(config, selected);
-        JSONObject nestedSchema = option == null ? null : option.optJSONObject("inputs");
-        if (nestedSchema != null) {
-            fillNestedSection(packed, existing, flatInputs, nestedSchema.optJSONObject("required"), flatKey + ".");
-            fillNestedSection(packed, existing, flatInputs, nestedSchema.optJSONObject("optional"), flatKey + ".");
-        } else {
-            // Unknown future option: preserve its already nested payload instead
-            // of discarding data merely because this client has an older schema.
-            Iterator<String> existingKeys = existing.keys();
-            while (existingKeys.hasNext()) {
-                String key = existingKeys.next();
-                if (selectorName.equals(key) || "value".equals(key)) continue;
-                packed.put(key, cloneValue(existing.opt(key)));
-            }
-        }
-        return packed;
-    }
-
-    private static JSONObject buildDynamicSlot(JSONObject flatInputs, String flatKey,
-                                               JSONObject config, Object rawValue) throws JSONException {
-        JSONObject existing = rawValue instanceof JSONObject ? cloneObject((JSONObject) rawValue) : new JSONObject();
-        JSONObject packed = new JSONObject();
-        JSONObject nestedSchema = config == null ? null : config.optJSONObject("inputs");
-        if (nestedSchema != null) {
-            fillNestedSection(packed, existing, flatInputs, nestedSchema.optJSONObject("required"), flatKey + ".");
-            fillNestedSection(packed, existing, flatInputs, nestedSchema.optJSONObject("optional"), flatKey + ".");
-        } else {
-            Iterator<String> keys = existing.keys();
-            while (keys.hasNext()) {
-                String key = keys.next();
-                packed.put(key, cloneValue(existing.opt(key)));
-            }
-        }
-        return packed;
-    }
-
-    private static void fillNestedSection(JSONObject target, JSONObject existingParent,
-                                          JSONObject flatInputs, JSONObject section,
-                                          String flatPrefix) throws JSONException {
-        if (section == null) return;
-        Iterator<String> keys = section.keys();
-        while (keys.hasNext()) {
-            String local = keys.next();
-            String flatKey = flatPrefix + local;
-            JSONArray spec = section.optJSONArray(local);
-            if (spec == null) continue;
-            String type = typeOf(spec);
-            JSONObject config = spec.optJSONObject(1);
-            Object existing = existingParent.opt(local);
 
             if (DYNAMIC_COMBO.equals(type)) {
-                Object raw = flatInputs.has(flatKey) ? flatInputs.opt(flatKey) : existing;
-                target.put(local, buildDynamicCombo(flatInputs, flatKey, local, config, raw));
+                flattenComboObject(inputs, flatKey, local);
+
+                Object selected = inputs.opt(flatKey);
+                JSONObject option = dynamicOption(config, selected);
+                if (option == null) {
+                    option = bestMatchingOption(config, inputs, flatKey);
+                    Object key = option == null ? firstDynamicOptionKey(config) : option.opt("key");
+                    inputs.put(flatKey, key == null || key == JSONObject.NULL ? "" : key);
+                }
+
+                option = dynamicOption(config, inputs.opt(flatKey));
+                JSONObject nested = option == null ? null : option.optJSONObject("inputs");
+                Set<String> allowed = schemaPaths(nested);
+                removeStaleChildren(inputs, flatKey + ".", allowed);
+                normalizeSection(inputs, nested == null ? null : nested.optJSONObject("required"), flatKey + ".");
+                normalizeSection(inputs, nested == null ? null : nested.optJSONObject("optional"), flatKey + ".");
                 continue;
             }
+
             if (DYNAMIC_SLOT.equals(type)) {
-                Object raw = flatInputs.has(flatKey) ? flatInputs.opt(flatKey) : existing;
-                target.put(local, buildDynamicSlot(flatInputs, flatKey, config, raw));
-                continue;
-            }
-
-            if (flatInputs.has(flatKey)) {
-                target.put(local, cloneValue(flatInputs.opt(flatKey)));
-            } else if (existingParent.has(local)) {
-                target.put(local, cloneValue(existing));
-            } else {
-                Object fallback = schemaDefault(spec);
-                if (fallback != JSONObject.NULL) target.put(local, cloneValue(fallback));
+                flattenSlotObject(inputs, flatKey);
+                JSONObject nested = config == null ? null : config.optJSONObject("inputs");
+                normalizeSection(inputs, nested == null ? null : nested.optJSONObject("required"), flatKey + ".");
+                normalizeSection(inputs, nested == null ? null : nested.optJSONObject("optional"), flatKey + ".");
             }
         }
     }
 
-    private static Object schemaDefault(JSONArray spec) {
-        if (spec == null) return JSONObject.NULL;
-        JSONObject config = spec.optJSONObject(1);
-        if (config != null && config.has("default")) return config.opt("default");
-        Object type = spec.opt(0);
-        if (type instanceof JSONArray && ((JSONArray) type).length() > 0) return ((JSONArray) type).opt(0);
-        String name = String.valueOf(type == null ? "" : type).toUpperCase(Locale.US);
-        if ("BOOLEAN".equals(name) || "BOOL".equals(name)) return false;
-        if ("INT".equals(name)) return 0;
-        if ("FLOAT".equals(name) || "NUMBER".equals(name)) return 0.0;
-        if ("STRING".equals(name)) return "";
-        return JSONObject.NULL;
+    private static void flattenComboObject(JSONObject inputs, String flatKey,
+                                           String selectorName) throws JSONException {
+        Object raw = inputs.opt(flatKey);
+        if (!(raw instanceof JSONObject)) return;
+        JSONObject nested = (JSONObject) raw;
+        Object selected = nested.has(selectorName) ? nested.opt(selectorName) : nested.opt("value");
+        inputs.put(flatKey, selected == null || selected == JSONObject.NULL ? "" : cloneValue(selected));
+        Iterator<String> keys = nested.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (selectorName.equals(key) || "value".equals(key)) continue;
+            inputs.put(flatKey + "." + key, cloneValue(nested.opt(key)));
+        }
+    }
+
+    private static void flattenSlotObject(JSONObject inputs, String flatKey) throws JSONException {
+        Object raw = inputs.opt(flatKey);
+        if (!(raw instanceof JSONObject)) return;
+        JSONObject nested = (JSONObject) raw;
+        inputs.remove(flatKey);
+        Iterator<String> keys = nested.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            inputs.put(flatKey + "." + key, cloneValue(nested.opt(key)));
+        }
+    }
+
+    private static JSONObject bestMatchingOption(JSONObject config, JSONObject inputs,
+                                                  String flatKey) {
+        JSONArray options = config == null ? null : config.optJSONArray("options");
+        if (options == null || options.length() == 0) return null;
+        JSONObject best = options.optJSONObject(0);
+        int bestScore = -1;
+        for (int i = 0; i < options.length(); i++) {
+            JSONObject option = options.optJSONObject(i);
+            if (option == null) continue;
+            Set<String> paths = schemaPaths(option.optJSONObject("inputs"));
+            int score = 0;
+            for (String path : paths) {
+                if (inputs.has(flatKey + "." + path)) score++;
+            }
+            if (score > bestScore) {
+                best = option;
+                bestScore = score;
+            }
+        }
+        return best;
+    }
+
+    private static Set<String> schemaPaths(JSONObject inputSchema) {
+        HashSet<String> out = new HashSet<>();
+        if (inputSchema == null) return out;
+        collectSchemaPaths(out, inputSchema.optJSONObject("required"), "");
+        collectSchemaPaths(out, inputSchema.optJSONObject("optional"), "");
+        return out;
+    }
+
+    private static void collectSchemaPaths(Set<String> out, JSONObject section,
+                                           String prefix) {
+        if (section == null) return;
+        Iterator<String> keys = section.keys();
+        while (keys.hasNext()) {
+            String local = keys.next();
+            String path = prefix + local;
+            out.add(path);
+            JSONArray spec = section.optJSONArray(local);
+            if (spec == null) continue;
+            String type = typeOf(spec);
+            JSONObject config = spec.optJSONObject(1);
+            if (DYNAMIC_COMBO.equals(type)) {
+                JSONArray options = config == null ? null : config.optJSONArray("options");
+                if (options == null) continue;
+                for (int i = 0; i < options.length(); i++) {
+                    JSONObject option = options.optJSONObject(i);
+                    JSONObject nested = option == null ? null : option.optJSONObject("inputs");
+                    collectSchemaPaths(out, nested == null ? null : nested.optJSONObject("required"), path + ".");
+                    collectSchemaPaths(out, nested == null ? null : nested.optJSONObject("optional"), path + ".");
+                }
+            } else if (DYNAMIC_SLOT.equals(type)) {
+                JSONObject nested = config == null ? null : config.optJSONObject("inputs");
+                collectSchemaPaths(out, nested == null ? null : nested.optJSONObject("required"), path + ".");
+                collectSchemaPaths(out, nested == null ? null : nested.optJSONObject("optional"), path + ".");
+            }
+        }
+    }
+
+    private static void removeStaleChildren(JSONObject inputs, String prefix,
+                                            Set<String> allowed) {
+        ArrayList<String> remove = new ArrayList<>();
+        Iterator<String> keys = inputs.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (!key.startsWith(prefix)) continue;
+            String relative = key.substring(prefix.length());
+            if (!allowed.contains(relative)) remove.add(key);
+        }
+        for (String key : remove) inputs.remove(key);
     }
 
     private static JSONObject dynamicOption(JSONObject config, Object selected) {
@@ -189,16 +217,6 @@ public final class DynamicExecutionPrompt {
 
     private static String typeOf(JSONArray spec) {
         return String.valueOf(spec == null ? "" : spec.opt(0)).toUpperCase(Locale.US);
-    }
-
-    private static void removePrefixed(JSONObject object, String prefix) {
-        ArrayList<String> remove = new ArrayList<>();
-        Iterator<String> keys = object.keys();
-        while (keys.hasNext()) {
-            String key = keys.next();
-            if (key.startsWith(prefix)) remove.add(key);
-        }
-        for (String key : remove) object.remove(key);
     }
 
     private static Object cloneValue(Object value) {
