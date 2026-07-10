@@ -10,8 +10,13 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 50
-        versionName = "0.13.1-preview-fields"
+        versionCode = 51
+        versionName = "0.14.0-native-foundation"
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 }
 
