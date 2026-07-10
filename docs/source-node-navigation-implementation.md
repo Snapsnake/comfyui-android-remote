@@ -1,0 +1,1 @@
+Connected inputs remain linked. Editing opens the upstream node that owns the value instead of replacing the connection.
