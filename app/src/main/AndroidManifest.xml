@@ -6,11 +6,12 @@
         android:label="ComfyUI Mobile"
         android:icon="@drawable/ic_launcher"
         android:usesCleartextTraffic="true"
-        android:resizeableActivity="true"
+        android:resizeableActivity="false"
         android:hardwareAccelerated="true">
         <activity
-            android:name=".ComfyWorkstationPreviewActivity"
+            android:name=".NativeComfyActivity"
             android:exported="true"
+            android:screenOrientation="portrait"
             android:configChanges="keyboardHidden|orientation|screenSize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
