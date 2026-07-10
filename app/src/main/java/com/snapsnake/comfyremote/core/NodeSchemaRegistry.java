@@ -43,19 +43,16 @@ public final class NodeSchemaRegistry {
             this.sourceOutputIndex = sourceOutputIndex;
         }
 
-        public boolean canUseLocalValue() {
-            return kind != Kind.UNKNOWN;
+        public boolean canUseLocalValue() { return kind != Kind.UNKNOWN; }
+
+        public boolean isDynamicSelector() {
+            return config.optBoolean("_dynamic_combo_root", false);
         }
 
         public String connectionSummary() {
             if (!connected) return "";
             String source = sourceNodeId.isEmpty() ? "upstream node" : "#" + sourceNodeId;
             return sourceOutputIndex >= 0 ? source + " · output " + sourceOutputIndex : source;
-        }
-
-        public FieldSpec disconnected() {
-            return new FieldSpec(nodeId, nodeClass, key, kind, required, false, multiline, value,
-                    cloneArray(options), cloneObject(config), "", -1);
         }
     }
 
@@ -123,7 +120,7 @@ public final class NodeSchemaRegistry {
                 }
                 for (FieldSpec field : fieldsForNode(id, node)) {
                     if (field.connected || inputs.has(field.key) || !field.canUseLocalValue()) continue;
-                    inputs.put(field.key, field.value == JSONObject.NULL ? "" : field.value);
+                    inputs.put(field.key, cloneValue(field.value == JSONObject.NULL ? "" : field.value));
                     added++;
                 }
             } catch (Exception ignored) {}
@@ -139,9 +136,10 @@ public final class NodeSchemaRegistry {
             JSONObject input = definition.optJSONObject("input");
             JSONObject required = input == null ? null : input.optJSONObject("required");
             JSONObject optional = input == null ? null : input.optJSONObject("optional");
-            addSection(out, nodeId, node, required, true);
-            addSection(out, nodeId, node, optional, false);
+            addSection(out, nodeId, node, required, true, "");
+            addSection(out, nodeId, node, optional, false, "");
 
+            // Preserve existing primitive values omitted by an old or incomplete custom-node schema.
             JSONObject inputs = node.optJSONObject("inputs");
             if (inputs != null) {
                 Iterator<String> keys = inputs.keys();
@@ -160,44 +158,105 @@ public final class NodeSchemaRegistry {
         }
     }
 
-    private void addSection(ArrayList<FieldSpec> out, String nodeId, JSONObject node, JSONObject section, boolean required) {
+    private void addSection(ArrayList<FieldSpec> out, String nodeId, JSONObject node,
+                            JSONObject section, boolean required, String prefix) {
         if (section == null) return;
         JSONObject inputs = node.optJSONObject("inputs");
         if (inputs == null) inputs = new JSONObject();
         Iterator<String> keys = section.keys();
         while (keys.hasNext()) {
-            String key = keys.next();
-            Object raw = section.opt(key);
-            if (!(raw instanceof JSONArray)) continue;
-            JSONArray spec = (JSONArray) raw;
+            String localKey = keys.next();
+            String key = prefix + localKey;
+            JSONArray spec = section.optJSONArray(localKey);
+            if (spec == null) continue;
             Object typeRaw = spec.opt(0);
             JSONObject config = spec.optJSONObject(1);
-            JSONArray options = typeRaw instanceof JSONArray ? (JSONArray) typeRaw : new JSONArray();
-            Kind kind = kindOf(typeRaw, key, config);
-            Object current = inputs.has(key) ? inputs.opt(key) : JSONObject.NULL;
-            JSONArray connection = connectionOf(current);
-            boolean connected = connection != null;
-            Object value = connected ? JSONObject.NULL : current;
-            if (value == JSONObject.NULL) value = schemaDefault(kind, options, config);
-            boolean multiline = kind == Kind.STRING && isMultilineKey(key, config);
-            String sourceNodeId = connected ? String.valueOf(connection.opt(0)) : "";
-            int sourceOutputIndex = connected ? connection.optInt(1, -1) : -1;
-            out.add(new FieldSpec(nodeId, node.optString("class_type", ""), key, kind,
-                    required, connected, multiline, value, cloneArray(options), cloneObject(config),
-                    sourceNodeId, sourceOutputIndex));
+            String type = String.valueOf(typeRaw == null ? "" : typeRaw).toUpperCase(Locale.US);
+
+            if ("COMFY_DYNAMICCOMBO_V3".equals(type)) {
+                addDynamicCombo(out, nodeId, node, key, localKey, required, config, inputs);
+                continue;
+            }
+            if ("COMFY_DYNAMICSLOT_V3".equals(type)) {
+                JSONObject nested = config == null ? null : config.optJSONObject("inputs");
+                addSection(out, nodeId, node, nested == null ? null : nested.optJSONObject("required"), true, key + ".");
+                addSection(out, nodeId, node, nested == null ? null : nested.optJSONObject("optional"), false, key + ".");
+                continue;
+            }
+
+            JSONArray options = typeRaw instanceof JSONArray ? (JSONArray) typeRaw : optionsFromConfig(type, config);
+            addField(out, nodeId, node, key, required, typeRaw, config, options, inputs);
         }
+    }
+
+    private void addDynamicCombo(ArrayList<FieldSpec> out, String nodeId, JSONObject node,
+                                 String key, String localKey, boolean required,
+                                 JSONObject config, JSONObject inputs) {
+        JSONArray optionObjects = config == null ? null : config.optJSONArray("options");
+        JSONArray optionKeys = new JSONArray();
+        if (optionObjects != null) {
+            for (int i = 0; i < optionObjects.length(); i++) {
+                JSONObject option = optionObjects.optJSONObject(i);
+                if (option != null) optionKeys.put(option.opt("key"));
+            }
+        }
+
+        JSONObject selectorConfig = cloneObject(config);
+        try { selectorConfig.put("_dynamic_combo_root", true); }
+        catch (Exception ignored) {}
+        addField(out, nodeId, node, key, required, "COMBO", selectorConfig, optionKeys, inputs);
+
+        Object selected = inputs.has(key) ? inputs.opt(key) : JSONObject.NULL;
+        if (selected == JSONObject.NULL && optionKeys.length() > 0) selected = optionKeys.opt(0);
+        JSONObject selectedOption = findDynamicOption(optionObjects, selected);
+        JSONObject nested = selectedOption == null ? null : selectedOption.optJSONObject("inputs");
+        addSection(out, nodeId, node, nested == null ? null : nested.optJSONObject("required"), true, key + ".");
+        addSection(out, nodeId, node, nested == null ? null : nested.optJSONObject("optional"), false, key + ".");
+    }
+
+    private void addField(ArrayList<FieldSpec> out, String nodeId, JSONObject node,
+                          String key, boolean required, Object typeRaw, JSONObject config,
+                          JSONArray options, JSONObject inputs) {
+        Kind kind = kindOf(typeRaw, key, config);
+        Object current = inputs.has(key) ? inputs.opt(key) : JSONObject.NULL;
+        JSONArray connection = connectionOf(current);
+        boolean connected = connection != null;
+        Object value = connected ? JSONObject.NULL : current;
+        if (value == JSONObject.NULL) value = schemaDefault(kind, options, config);
+        boolean multiline = kind == Kind.STRING && isMultilineKey(key, config);
+        String sourceNodeId = connected ? String.valueOf(connection.opt(0)) : "";
+        int sourceOutputIndex = connected ? connection.optInt(1, -1) : -1;
+        out.add(new FieldSpec(nodeId, node.optString("class_type", ""), key, kind,
+                required, connected, multiline, value, cloneArray(options), cloneObject(config),
+                sourceNodeId, sourceOutputIndex));
+    }
+
+    private static JSONArray optionsFromConfig(String type, JSONObject config) {
+        if (!"COMBO".equals(type) || config == null) return new JSONArray();
+        JSONArray options = config.optJSONArray("options");
+        return options == null ? new JSONArray() : options;
+    }
+
+    private static JSONObject findDynamicOption(JSONArray options, Object selected) {
+        if (options == null) return null;
+        String target = selected == null || selected == JSONObject.NULL ? "" : String.valueOf(selected);
+        for (int i = 0; i < options.length(); i++) {
+            JSONObject option = options.optJSONObject(i);
+            if (option != null && target.equals(String.valueOf(option.opt("key")))) return option;
+        }
+        return null;
     }
 
     private static Kind kindOf(Object typeRaw, String key, JSONObject config) {
         if (typeRaw instanceof JSONArray) {
-            if (config != null && (config.optBoolean("image_upload", false) || config.optBoolean("upload", false))) return Kind.FILE;
+            if (isUpload(config)) return Kind.FILE;
             return Kind.COMBO;
         }
         String type = String.valueOf(typeRaw == null ? "" : typeRaw).toUpperCase(Locale.US);
         if ("STRING".equals(type)) {
-            String lower = key == null ? "" : key.toLowerCase(Locale.US);
-            boolean upload = config != null && (config.optBoolean("image_upload", false) || config.optBoolean("upload", false));
-            if (upload || lower.equals("image") || lower.equals("mask") || lower.equals("file") || lower.equals("upload") || lower.endsWith("_image") || lower.endsWith("_mask")) return Kind.FILE;
+            String leaf = leafKey(key).toLowerCase(Locale.US);
+            if (isUpload(config) || leaf.equals("image") || leaf.equals("mask") || leaf.equals("file") ||
+                    leaf.equals("upload") || leaf.endsWith("_image") || leaf.endsWith("_mask")) return Kind.FILE;
             return Kind.STRING;
         }
         if ("INT".equals(type)) return Kind.INTEGER;
@@ -207,8 +266,12 @@ public final class NodeSchemaRegistry {
         return Kind.UNKNOWN;
     }
 
+    private static boolean isUpload(JSONObject config) {
+        return config != null && (config.optBoolean("image_upload", false) || config.optBoolean("upload", false));
+    }
+
     private static Object schemaDefault(Kind kind, JSONArray options, JSONObject config) {
-        if (config != null && config.has("default")) return config.opt("default");
+        if (config != null && config.has("default")) return cloneValue(config.opt("default"));
         if ((kind == Kind.COMBO || kind == Kind.FILE) && options != null && options.length() > 0) return options.opt(0);
         if (kind == Kind.BOOLEAN) return false;
         if (kind == Kind.INTEGER) return 0;
@@ -227,8 +290,14 @@ public final class NodeSchemaRegistry {
 
     private static boolean isMultilineKey(String key, JSONObject config) {
         if (config != null && config.optBoolean("multiline", false)) return true;
-        String k = key == null ? "" : key.toLowerCase(Locale.US);
+        String k = leafKey(key).toLowerCase(Locale.US);
         return k.contains("prompt") || k.equals("text") || k.endsWith("_text") || k.contains("negative");
+    }
+
+    private static String leafKey(String key) {
+        if (key == null) return "";
+        int dot = key.lastIndexOf('.');
+        return dot < 0 ? key : key.substring(dot + 1);
     }
 
     private static Kind inferKind(Object value) {
@@ -245,6 +314,12 @@ public final class NodeSchemaRegistry {
 
     private static boolean isPrimitive(Object value) {
         return value == JSONObject.NULL || value instanceof String || value instanceof Number || value instanceof Boolean;
+    }
+
+    private static Object cloneValue(Object value) {
+        if (value instanceof JSONObject) return cloneObject((JSONObject) value);
+        if (value instanceof JSONArray) return cloneArray((JSONArray) value);
+        return value;
     }
 
     private static JSONObject cloneObject(JSONObject object) {
