@@ -24,29 +24,35 @@ public final class WorkflowDocument {
     public static WorkflowDocument importRaw(JSONObject raw, JSONObject objectInfo, String sourceName) throws Exception {
         JSONObject source = raw == null ? new JSONObject() : raw;
 
-        // Exact round-trip bundle written by the Android client.
         JSONObject bundledPrompt = source.optJSONObject("apiPrompt");
         JSONObject bundledOriginal = source.optJSONObject("original");
         if (bundledPrompt != null && looksApiPrompt(bundledPrompt)) {
-            return new WorkflowDocument(
-                    bundledOriginal == null ? new JSONObject() : bundledOriginal,
+            JSONObject original = bundledOriginal == null ? new JSONObject() : bundledOriginal;
+            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
                     bundledPrompt,
+                    original,
+                    objectInfo == null ? new JSONObject() : objectInfo
+            );
+            return new WorkflowDocument(
+                    original,
+                    repaired,
                     source.optString("sourceName", sourceName == null ? "" : sourceName),
                     source.optLong("updatedAt", System.currentTimeMillis())
             );
         }
 
-        // Frontend export written by this app. The complete frontend graph is
-        // retained as the original, while the embedded API prompt carries the
-        // exact current values. Ordinary third-party workflows do not use this
-        // marker and continue through the normal converter.
         JSONObject extra = source.optJSONObject("extra");
         JSONObject mobile = extra == null ? null : extra.optJSONObject("comfyui_mobile");
         JSONObject embeddedPrompt = extra == null ? null : extra.optJSONObject("prompt");
         if (mobile != null && embeddedPrompt != null && looksApiPrompt(embeddedPrompt)) {
+            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
+                    embeddedPrompt,
+                    source,
+                    objectInfo == null ? new JSONObject() : objectInfo
+            );
             return new WorkflowDocument(
                     source,
-                    embeddedPrompt,
+                    repaired,
                     mobile.optString("sourceName", sourceName == null ? "" : sourceName),
                     mobile.optLong("updatedAt", System.currentTimeMillis())
             );
@@ -74,7 +80,7 @@ public final class WorkflowDocument {
     public JSONObject toJson() {
         JSONObject out = new JSONObject();
         try {
-            out.put("formatVersion", 2);
+            out.put("formatVersion", 3);
             out.put("kind", "comfyui-mobile-workflow");
             out.put("original", cloneObject(original));
             out.put("apiPrompt", cloneObject(apiPrompt));
@@ -85,11 +91,6 @@ public final class WorkflowDocument {
         return out;
     }
 
-    /**
-     * Preserves the complete frontend workflow and embeds the current,
-     * executable API prompt. Unknown nodes, subgraphs, groups and metadata are
-     * left untouched.
-     */
     public JSONObject frontendWithCurrentPrompt() {
         JSONObject out = cloneObject(original);
         try {
@@ -104,12 +105,25 @@ public final class WorkflowDocument {
                 mobile = new JSONObject();
                 extra.put("comfyui_mobile", mobile);
             }
-            mobile.put("formatVersion", 2);
+            mobile.put("formatVersion", 3);
             mobile.put("sourceName", sourceName);
             mobile.put("updatedAt", updatedAt);
             mobile.put("exportedAt", System.currentTimeMillis());
         } catch (Exception ignored) {}
         return out;
+    }
+
+    public WorkflowDocument repaired(JSONObject objectInfo) {
+        try {
+            JSONObject repaired = ComfyWorkflowConverter.repairPrompt(
+                    apiPrompt,
+                    original,
+                    objectInfo == null ? new JSONObject() : objectInfo
+            );
+            return new WorkflowDocument(original, repaired, sourceName, System.currentTimeMillis());
+        } catch (Exception ignored) {
+            return snapshot();
+        }
     }
 
     public JSONObject original() { return cloneObject(original); }
