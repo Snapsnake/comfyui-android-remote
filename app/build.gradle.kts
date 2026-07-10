@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 55
-        versionName = "0.14.4-dynamic-inputs"
+        versionCode = 56
+        versionName = "0.14.5-uploaded-images"
     }
 
     compileOptions {

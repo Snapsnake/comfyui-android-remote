@@ -10,9 +10,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.ConnectionPool;
@@ -28,7 +26,6 @@ import okhttp3.WebSocketListener;
 
 public final class ComfyApiClient {
     public static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    private static final MediaType OCTET_STREAM = MediaType.parse("application/octet-stream");
     private static final int MAX_BODY_BYTES = 96 * 1024 * 1024;
 
     private final OkHttpClient safeHttp = new OkHttpClient.Builder()
@@ -99,13 +96,39 @@ public final class ComfyApiClient {
     }
 
     public JSONObject uploadImage(byte[] bytes, String filename, boolean overwrite) throws Exception {
+        if (bytes == null || bytes.length == 0) throw new IOException("Selected image is empty");
+        String uploadName = InputImageUpload.normalizeFilename(filename, bytes);
+        MediaType mediaType = MediaType.parse(InputImageUpload.mediaType(bytes, uploadName));
         MultipartBody body = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
-                .addFormDataPart("image", filename, RequestBody.create(bytes, OCTET_STREAM))
+                .addFormDataPart("image", uploadName, RequestBody.create(bytes, mediaType))
                 .addFormDataPart("type", "input")
                 .addFormDataPart("overwrite", overwrite ? "true" : "false")
                 .build();
-        return new JSONObject(new String(requestBytes("/upload/image", body, "POST"), StandardCharsets.UTF_8));
+
+        byte[] responseBytes = requestBytes("/upload/image", body, "POST");
+        if (responseBytes.length == 0) throw new IOException("ComfyUI returned an empty upload response");
+        JSONObject response = new JSONObject(new String(responseBytes, StandardCharsets.UTF_8));
+        InputImageUpload.Ref uploaded = InputImageUpload.fromUploadResponse(response, uploadName);
+        if (uploaded.filename.isEmpty()) throw new IOException("ComfyUI did not return the uploaded filename");
+        String returnedType = response.optString("type", "input");
+        if (!"input".equals(returnedType)) throw new IOException("ComfyUI saved the file as type " + returnedType + " instead of input");
+        if (!inputImageExists(uploaded.workflowValue())) {
+            throw new IOException("Upload was acknowledged, but ComfyUI cannot read input/" + uploaded.workflowValue());
+        }
+
+        response.put("name", uploaded.filename);
+        response.put("subfolder", uploaded.subfolder);
+        response.put("type", "input");
+        response.put("workflow_value", uploaded.workflowValue());
+        return response;
+    }
+
+    public boolean inputImageExists(String workflowValue) throws Exception {
+        InputImageUpload.Ref ref = InputImageUpload.parseWorkflowValue(workflowValue);
+        if (ref.filename.isEmpty()) return false;
+        String path = "/view?filename=" + enc(ref.filename) + "&subfolder=" + enc(ref.subfolder) + "&type=input";
+        return requestExists(path);
     }
 
     public String templateJsonPath(String source, String name) {
@@ -176,6 +199,37 @@ public final class ComfyApiClient {
         throw new IOException(errors.length() == 0 ? "No ComfyUI URL configured" : errors.toString().trim());
     }
 
+    private boolean requestExists(String path) throws Exception {
+        ServerProfile current = profile;
+        if (current == null) throw new IOException("No server profile configured");
+        StringBuilder errors = new StringBuilder();
+        boolean sawNotFound = false;
+        for (String base : orderedCandidates(current)) {
+            try {
+                Boolean exists = executeExists(safeHttp, base + path, true);
+                if (Boolean.TRUE.equals(exists)) {
+                    resolvedBaseUrl = base;
+                    return true;
+                }
+                sawNotFound = true;
+            } catch (Exception e) {
+                errors.append(base).append(" safe: ").append(shortError(e)).append('\n');
+            }
+            try {
+                Boolean exists = executeExists(normalHttp, base + path, false);
+                if (Boolean.TRUE.equals(exists)) {
+                    resolvedBaseUrl = base;
+                    return true;
+                }
+                sawNotFound = true;
+            } catch (Exception e) {
+                errors.append(base).append(" normal: ").append(shortError(e)).append('\n');
+            }
+        }
+        if (sawNotFound) return false;
+        throw new IOException(errors.length() == 0 ? "Could not verify ComfyUI input file" : errors.toString().trim());
+    }
+
     private List<String> orderedCandidates(ServerProfile current) {
         ArrayList<String> out = new ArrayList<>();
         if (!resolvedBaseUrl.isEmpty()) out.add(resolvedBaseUrl);
@@ -196,6 +250,17 @@ public final class ComfyApiClient {
                 throw new IOException("HTTP " + response.code() + ": " + abbreviate(text, 400));
             }
             return bytes;
+        }
+    }
+
+    private Boolean executeExists(OkHttpClient client, String url, boolean safeMode) throws Exception {
+        Request.Builder request = new Request.Builder().url(url).get();
+        applyHeaders(request, url, safeMode);
+        try (Response response = client.newCall(request.build()).execute()) {
+            if (response.isSuccessful()) return true;
+            if (response.code() == 404) return false;
+            String text = response.body() == null ? "" : response.body().string();
+            throw new IOException("HTTP " + response.code() + ": " + abbreviate(text, 300));
         }
     }
 
