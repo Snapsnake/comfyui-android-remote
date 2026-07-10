@@ -9,7 +9,7 @@ import org.json.JSONObject;
 import org.junit.Test;
 
 public class DynamicExecutionPromptTest {
-    @Test public void resizeImageMaskReceivesOneNestedResizeTypeArgument() throws Exception {
+    @Test public void keepsOfficialFlatDynamicPromptFormat() throws Exception {
         JSONObject editableInputs = new JSONObject()
                 .put("input", new JSONArray().put("269").put(0))
                 .put("resize_type", "scale dimensions")
@@ -20,27 +20,40 @@ public class DynamicExecutionPromptTest {
         JSONObject editable = prompt(editableInputs);
 
         JSONObject execution = DynamicExecutionPrompt.pack(editable, objectInfo());
-        JSONObject sentInputs = execution.getJSONObject("320_290").getJSONObject("inputs");
-        JSONObject resizeType = sentInputs.getJSONObject("resize_type");
+        JSONObject sent = execution.getJSONObject("320_290").getJSONObject("inputs");
 
-        assertEquals("scale dimensions", resizeType.getString("resize_type"));
-        assertEquals("320_312", resizeType.getJSONArray("width").getString(0));
-        assertEquals(0, resizeType.getJSONArray("width").getInt(1));
-        assertEquals("320_299", resizeType.getJSONArray("height").getString(0));
-        assertEquals("center", resizeType.getString("crop"));
-        assertEquals("lanczos", sentInputs.getString("scale_method"));
+        assertEquals("scale dimensions", sent.getString("resize_type"));
+        assertEquals("320_312", sent.getJSONArray("resize_type.width").getString(0));
+        assertEquals("320_299", sent.getJSONArray("resize_type.height").getString(0));
+        assertEquals("center", sent.getString("resize_type.crop"));
+        assertEquals("lanczos", sent.getString("scale_method"));
+        assertFalse(sent.opt("resize_type") instanceof JSONObject);
 
-        assertFalse(sentInputs.has("resize_type.width"));
-        assertFalse(sentInputs.has("resize_type.height"));
-        assertFalse(sentInputs.has("resize_type.crop"));
-
-        // Packing is send-only and must not damage the editable workflow.
-        JSONObject originalInputs = editable.getJSONObject("320_290").getJSONObject("inputs");
-        assertTrue(originalInputs.has("resize_type.width"));
-        assertEquals("scale dimensions", originalInputs.getString("resize_type"));
+        JSONObject original = editable.getJSONObject("320_290").getJSONObject("inputs");
+        assertEquals("scale dimensions", original.getString("resize_type"));
+        assertTrue(original.has("resize_type.width"));
     }
 
-    @Test public void onlySelectedDynamicOptionIsSent() throws Exception {
+    @Test public void repairsShiftedSelectorFromOmittedFrontendSlot() throws Exception {
+        JSONObject inputs = new JSONObject()
+                .put("input", new JSONArray().put("269").put(0))
+                // Older conversion incorrectly consumed the width widget value here.
+                .put("resize_type", 1088)
+                .put("resize_type.width", new JSONArray().put("320_312").put(0))
+                .put("resize_type.height", new JSONArray().put("320_299").put(0))
+                .put("resize_type.crop", "center")
+                .put("scale_method", "lanczos");
+
+        JSONObject execution = DynamicExecutionPrompt.pack(prompt(inputs), objectInfo());
+        JSONObject sent = execution.getJSONObject("320_290").getJSONObject("inputs");
+
+        assertEquals("scale dimensions", sent.getString("resize_type"));
+        assertTrue(sent.has("resize_type.width"));
+        assertTrue(sent.has("resize_type.height"));
+        assertTrue(sent.has("resize_type.crop"));
+    }
+
+    @Test public void removesChildrenFromUnselectedDynamicOption() throws Exception {
         JSONObject inputs = new JSONObject()
                 .put("input", new JSONArray().put("269").put(0))
                 .put("resize_type", "scale width")
@@ -50,16 +63,15 @@ public class DynamicExecutionPromptTest {
                 .put("scale_method", "area");
 
         JSONObject execution = DynamicExecutionPrompt.pack(prompt(inputs), objectInfo());
-        JSONObject resizeType = execution.getJSONObject("320_290")
-                .getJSONObject("inputs").getJSONObject("resize_type");
+        JSONObject sent = execution.getJSONObject("320_290").getJSONObject("inputs");
 
-        assertEquals("scale width", resizeType.getString("resize_type"));
-        assertEquals(768, resizeType.getInt("width"));
-        assertFalse(resizeType.has("height"));
-        assertFalse(resizeType.has("crop"));
+        assertEquals("scale width", sent.getString("resize_type"));
+        assertEquals(768, sent.getInt("resize_type.width"));
+        assertFalse(sent.has("resize_type.height"));
+        assertFalse(sent.has("resize_type.crop"));
     }
 
-    @Test public void alreadyNestedApiPromptRemainsValid() throws Exception {
+    @Test public void convertsPreviouslyNestedPromptBackToOfficialFlatFormat() throws Exception {
         JSONObject nested = new JSONObject()
                 .put("resize_type", "scale dimensions")
                 .put("width", 1920)
@@ -71,10 +83,12 @@ public class DynamicExecutionPromptTest {
                 .put("scale_method", "lanczos");
 
         JSONObject execution = DynamicExecutionPrompt.pack(prompt(inputs), objectInfo());
-        JSONObject packed = execution.getJSONObject("320_290")
-                .getJSONObject("inputs").getJSONObject("resize_type");
-        assertEquals(1920, packed.getInt("width"));
-        assertEquals(1088, packed.getInt("height"));
+        JSONObject sent = execution.getJSONObject("320_290").getJSONObject("inputs");
+
+        assertEquals("scale dimensions", sent.getString("resize_type"));
+        assertEquals(1920, sent.getInt("resize_type.width"));
+        assertEquals(1088, sent.getInt("resize_type.height"));
+        assertEquals("center", sent.getString("resize_type.crop"));
     }
 
     private static JSONObject prompt(JSONObject inputs) throws Exception {
