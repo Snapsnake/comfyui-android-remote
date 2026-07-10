@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 59
-        versionName = "0.14.8-dynamic-selector-repair"
+        versionCode = 60
+        versionName = "0.14.9-widget-mapping"
     }
 
     compileOptions {
