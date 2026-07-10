@@ -12,6 +12,8 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.snapsnake.comfyremote.WorkflowExportActivity;
+
 public final class UiKit {
     public static final int BG = Color.rgb(17, 17, 18);
     public static final int SURFACE = Color.rgb(29, 29, 31);
@@ -49,9 +51,10 @@ public final class UiKit {
     }
 
     public static LinearLayout card(Context c, boolean accent) {
-        LinearLayout v = column(c);
+        LinearLayout v = new ExportAwareCard(c);
+        v.setOrientation(LinearLayout.VERTICAL);
         v.setPadding(dp(c, 14), dp(c, 14), dp(c, 14), dp(c, 14));
-        v.setBackground(background(c, SURFACE, 18, accent ? ACCENT : STROKE, accent ? 2 : 2));
+        v.setBackground(background(c, SURFACE, 18, accent ? ACCENT : STROKE, 2));
         return v;
     }
 
@@ -108,7 +111,13 @@ public final class UiKit {
         b.setTextColor(primary ? ACCENT : TEXT);
         b.setPadding(dp(c, 7), 0, dp(c, 7), 0);
         b.setBackground(background(c, primary ? Color.rgb(49, 37, 25) : SURFACE_2, 14, primary ? ACCENT : STROKE, 2));
-        b.setOnClickListener(listener);
+        if ("Back".equals(label)) {
+            b.setOnClickListener(v -> {
+                if (!NodeNavigationBridge.goBack(c) && listener != null) listener.onClick(v);
+            });
+        } else {
+            b.setOnClickListener(listener);
+        }
         return b;
     }
 
@@ -141,5 +150,25 @@ public final class UiKit {
         TextView t = text(c, icon, sp, color);
         t.setGravity(Gravity.CENTER);
         return t;
+    }
+
+    /** Adds the export action only to the workflow card, without coupling the activity to storage code. */
+    private static final class ExportAwareCard extends LinearLayout {
+        private boolean exportAdded;
+
+        ExportAwareCard(Context context) {
+            super(context);
+        }
+
+        @Override public void onViewAdded(View child) {
+            super.onViewAdded(child);
+            if (exportAdded || !(child instanceof Button)) return;
+            CharSequence text = ((Button) child).getText();
+            if (!"Save to local workflow library".contentEquals(text == null ? "" : text)) return;
+            exportAdded = true;
+            Button export = UiKit.button(getContext(), "Export workflow to folder", false,
+                    v -> WorkflowExportActivity.launch(getContext()));
+            addView(export, UiKit.match(getContext(), 42, 9));
+        }
     }
 }

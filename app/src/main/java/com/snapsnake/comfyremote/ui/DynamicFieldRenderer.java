@@ -13,6 +13,7 @@ import android.widget.LinearLayout;
 import android.widget.Spinner;
 import android.widget.Switch;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import com.snapsnake.comfyremote.core.NodeSchemaRegistry;
 
@@ -92,12 +93,19 @@ public final class DynamicFieldRenderer {
 
         card.addView(UiKit.title(context, "Connected from " + field.connectionSummary(), 13));
         card.addView(UiKit.muted(context,
-                "This value comes from another node. The link is preserved; edit the source node instead.",
+                "This value comes from another node. The link is preserved; open the source node to edit it.",
                 12), UiKit.match(context, -2, 4));
 
-        if (connections != null && !field.sourceNodeId.isEmpty()) {
-            card.addView(UiKit.button(context, "Open source node", false,
-                    v -> connections.onOpenSource(field)), UiKit.match(context, 40, 8));
+        if (!field.sourceNodeId.isEmpty()) {
+            card.addView(UiKit.button(context, "Open source node", false, v -> {
+                if (connections != null) {
+                    connections.onOpenSource(field);
+                    return;
+                }
+                if (!NodeNavigationBridge.openSourceNode(context, field.nodeId, field.sourceNodeId)) {
+                    Toast.makeText(context, "Source node was not found in the current workflow", Toast.LENGTH_SHORT).show();
+                }
+            }), UiKit.match(context, 40, 8));
         }
         return card;
     }

@@ -23,6 +23,35 @@ public final class WorkflowDocument {
 
     public static WorkflowDocument importRaw(JSONObject raw, JSONObject objectInfo, String sourceName) throws Exception {
         JSONObject source = raw == null ? new JSONObject() : raw;
+
+        // Exact round-trip bundle written by the Android client.
+        JSONObject bundledPrompt = source.optJSONObject("apiPrompt");
+        JSONObject bundledOriginal = source.optJSONObject("original");
+        if (bundledPrompt != null && looksApiPrompt(bundledPrompt)) {
+            return new WorkflowDocument(
+                    bundledOriginal == null ? new JSONObject() : bundledOriginal,
+                    bundledPrompt,
+                    source.optString("sourceName", sourceName == null ? "" : sourceName),
+                    source.optLong("updatedAt", System.currentTimeMillis())
+            );
+        }
+
+        // Frontend export written by this app. The complete frontend graph is
+        // retained as the original, while the embedded API prompt carries the
+        // exact current values. Ordinary third-party workflows do not use this
+        // marker and continue through the normal converter.
+        JSONObject extra = source.optJSONObject("extra");
+        JSONObject mobile = extra == null ? null : extra.optJSONObject("comfyui_mobile");
+        JSONObject embeddedPrompt = extra == null ? null : extra.optJSONObject("prompt");
+        if (mobile != null && embeddedPrompt != null && looksApiPrompt(embeddedPrompt)) {
+            return new WorkflowDocument(
+                    source,
+                    embeddedPrompt,
+                    mobile.optString("sourceName", sourceName == null ? "" : sourceName),
+                    mobile.optLong("updatedAt", System.currentTimeMillis())
+            );
+        }
+
         JSONObject result = ComfyWorkflowConverter.importResult(source, objectInfo == null ? new JSONObject() : objectInfo);
         JSONObject prompt = result.optJSONObject("prompt");
         if (prompt == null) prompt = new JSONObject(result.optString("prompt", "{}"));
@@ -45,17 +74,47 @@ public final class WorkflowDocument {
     public JSONObject toJson() {
         JSONObject out = new JSONObject();
         try {
-            out.put("formatVersion", 1);
+            out.put("formatVersion", 2);
+            out.put("kind", "comfyui-mobile-workflow");
             out.put("original", cloneObject(original));
             out.put("apiPrompt", cloneObject(apiPrompt));
             out.put("sourceName", sourceName);
             out.put("updatedAt", updatedAt);
+            out.put("exportedAt", System.currentTimeMillis());
+        } catch (Exception ignored) {}
+        return out;
+    }
+
+    /**
+     * Preserves the complete frontend workflow and embeds the current,
+     * executable API prompt. Unknown nodes, subgraphs, groups and metadata are
+     * left untouched.
+     */
+    public JSONObject frontendWithCurrentPrompt() {
+        JSONObject out = cloneObject(original);
+        try {
+            JSONObject extra = out.optJSONObject("extra");
+            if (extra == null) {
+                extra = new JSONObject();
+                out.put("extra", extra);
+            }
+            extra.put("prompt", cloneObject(apiPrompt));
+            JSONObject mobile = extra.optJSONObject("comfyui_mobile");
+            if (mobile == null) {
+                mobile = new JSONObject();
+                extra.put("comfyui_mobile", mobile);
+            }
+            mobile.put("formatVersion", 2);
+            mobile.put("sourceName", sourceName);
+            mobile.put("updatedAt", updatedAt);
+            mobile.put("exportedAt", System.currentTimeMillis());
         } catch (Exception ignored) {}
         return out;
     }
 
     public JSONObject original() { return cloneObject(original); }
     public JSONObject apiPrompt() { return apiPrompt; }
+    public JSONObject apiPromptCopy() { return cloneObject(apiPrompt); }
     public String sourceName() { return sourceName; }
     public long updatedAt() { return updatedAt; }
     public boolean isEmpty() { return apiPrompt.length() == 0; }

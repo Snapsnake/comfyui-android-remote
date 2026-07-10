@@ -1,1 +1,0 @@
-Connected values are edited at their source node while preserving the graph connection.
