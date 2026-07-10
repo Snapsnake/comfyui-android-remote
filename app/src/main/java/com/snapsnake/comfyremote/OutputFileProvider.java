@@ -58,7 +58,7 @@ public final class OutputFileProvider extends ContentProvider {
         MatrixCursor cursor = new MatrixCursor(columns, 1);
         MatrixCursor.RowBuilder row = cursor.newRow();
         for (String column : columns) {
-            if (OpenableColumns.DISPLAY_NAME.equals(column)) row.add(file.getName());
+            if (OpenableColumns.DISPLAY_NAME.equals(column)) row.add(displayName(file.getName()));
             else if (OpenableColumns.SIZE.equals(column)) row.add(file.isFile() ? file.length() : 0L);
             else row.add(null);
         }
@@ -68,6 +68,13 @@ public final class OutputFileProvider extends ContentProvider {
     @Override public Uri insert(Uri uri, ContentValues values) { throw new UnsupportedOperationException("Read-only provider"); }
     @Override public int delete(Uri uri, String selection, String[] selectionArgs) { return 0; }
     @Override public int update(Uri uri, ContentValues values, String selection, String[] selectionArgs) { return 0; }
+
+    private static String displayName(String cachedName) {
+        if (cachedName == null) return "output";
+        int underscore = cachedName.indexOf('_');
+        if (underscore == 16 && underscore + 1 < cachedName.length()) return cachedName.substring(underscore + 1);
+        return cachedName;
+    }
 
     private static String safeName(String value) {
         String raw = value == null ? "" : value;
