@@ -10,8 +10,8 @@ android {
         applicationId = "com.snapsnake.comfyremote"
         minSdk = 24
         targetSdk = 34
-        versionCode = 56
-        versionName = "0.14.5-uploaded-images"
+        versionCode = 57
+        versionName = "0.14.6-native-outputs"
     }
 
     compileOptions {
