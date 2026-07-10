@@ -20,6 +20,7 @@ import com.snapsnake.comfyremote.core.NodeSchemaRegistry;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 
 public final class DynamicFieldRenderer {
     public interface ChangeListener { void onChanged(); }
@@ -135,6 +136,7 @@ public final class DynamicFieldRenderer {
         for (int i = 0; i < field.options.length(); i++) values.add(String.valueOf(field.options.opt(i)));
         String current = String.valueOf(field.value == JSONObject.NULL ? "" : field.value);
         if (!current.isEmpty() && !values.contains(current)) values.add(0, current);
+        if (values.isEmpty()) values.add(current);
         ArrayAdapter<String> adapter = new ArrayAdapter<String>(context, android.R.layout.simple_spinner_item, values) {
             @Override public View getView(int position, View convertView, android.view.ViewGroup parent) {
                 TextView view = (TextView) super.getView(position, convertView, parent);
@@ -159,8 +161,11 @@ public final class DynamicFieldRenderer {
             @Override public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 if (initial) { initial = false; return; }
                 if (position < 0 || position >= values.size()) return;
-                put(node, field.key, values.get(position));
+                String next = values.get(position);
+                if (field.isDynamicSelector()) removePrefixedInputs(node, field.key + ".");
+                put(node, field.key, next);
                 if (changes != null) changes.onChanged();
+                if (field.isDynamicSelector()) spinner.post(() -> NodeNavigationBridge.refreshCurrentNode(context));
             }
             @Override public void onNothingSelected(AdapterView<?> parent) {}
         });
@@ -221,6 +226,18 @@ public final class DynamicFieldRenderer {
     private static boolean bool(Object value) {
         if (value instanceof Boolean) return (Boolean) value;
         return "true".equalsIgnoreCase(String.valueOf(value));
+    }
+
+    private static void removePrefixedInputs(JSONObject node, String prefix) {
+        JSONObject inputs = node == null ? null : node.optJSONObject("inputs");
+        if (inputs == null || prefix == null || prefix.isEmpty()) return;
+        ArrayList<String> remove = new ArrayList<>();
+        Iterator<String> keys = inputs.keys();
+        while (keys.hasNext()) {
+            String key = keys.next();
+            if (key.startsWith(prefix)) remove.add(key);
+        }
+        for (String key : remove) inputs.remove(key);
     }
 
     private static void put(JSONObject node, String key, Object value) {
