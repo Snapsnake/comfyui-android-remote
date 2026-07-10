@@ -52,6 +52,11 @@ public final class NodeSchemaRegistry {
             String source = sourceNodeId.isEmpty() ? "upstream node" : "#" + sourceNodeId;
             return sourceOutputIndex >= 0 ? source + " · output " + sourceOutputIndex : source;
         }
+
+        public FieldSpec disconnected() {
+            return new FieldSpec(nodeId, nodeClass, key, kind, required, false, multiline, value,
+                    cloneArray(options), cloneObject(config), "", -1);
+        }
     }
 
     public interface NodeAdapter {
@@ -137,7 +142,6 @@ public final class NodeSchemaRegistry {
             addSection(out, nodeId, node, required, true);
             addSection(out, nodeId, node, optional, false);
 
-            // Compatibility path for primitive API-prompt values omitted by old/custom schemas.
             JSONObject inputs = node.optJSONObject("inputs");
             if (inputs != null) {
                 Iterator<String> keys = inputs.keys();
