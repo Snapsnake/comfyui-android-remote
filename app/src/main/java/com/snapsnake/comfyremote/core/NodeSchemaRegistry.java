@@ -23,9 +23,12 @@ public final class NodeSchemaRegistry {
         public final Object value;
         public final JSONArray options;
         public final JSONObject config;
+        public final String sourceNodeId;
+        public final int sourceOutputIndex;
 
         FieldSpec(String nodeId, String nodeClass, String key, Kind kind, boolean required,
-                  boolean connected, boolean multiline, Object value, JSONArray options, JSONObject config) {
+                  boolean connected, boolean multiline, Object value, JSONArray options,
+                  JSONObject config, String sourceNodeId, int sourceOutputIndex) {
             this.nodeId = nodeId;
             this.nodeClass = nodeClass;
             this.key = key;
@@ -36,6 +39,23 @@ public final class NodeSchemaRegistry {
             this.value = value;
             this.options = options == null ? new JSONArray() : options;
             this.config = config == null ? new JSONObject() : config;
+            this.sourceNodeId = sourceNodeId == null ? "" : sourceNodeId;
+            this.sourceOutputIndex = sourceOutputIndex;
+        }
+
+        public boolean canUseLocalValue() {
+            return kind != Kind.UNKNOWN;
+        }
+
+        public String connectionSummary() {
+            if (!connected) return "";
+            String source = sourceNodeId.isEmpty() ? "upstream node" : "#" + sourceNodeId;
+            return sourceOutputIndex >= 0 ? source + " · output " + sourceOutputIndex : source;
+        }
+
+        public FieldSpec disconnected() {
+            return new FieldSpec(nodeId, nodeClass, key, kind, required, false, multiline, value,
+                    cloneArray(options), cloneObject(config), "", -1);
         }
     }
 
@@ -102,7 +122,7 @@ public final class NodeSchemaRegistry {
                     node.put("inputs", inputs);
                 }
                 for (FieldSpec field : fieldsForNode(id, node)) {
-                    if (field.connected || inputs.has(field.key)) continue;
+                    if (field.connected || inputs.has(field.key) || !field.canUseLocalValue()) continue;
                     inputs.put(field.key, field.value == JSONObject.NULL ? "" : field.value);
                     added++;
                 }
@@ -122,7 +142,6 @@ public final class NodeSchemaRegistry {
             addSection(out, nodeId, node, required, true);
             addSection(out, nodeId, node, optional, false);
 
-            // Compatibility path for existing primitive API-prompt values omitted by old/custom schemas.
             JSONObject inputs = node.optJSONObject("inputs");
             if (inputs != null) {
                 Iterator<String> keys = inputs.keys();
@@ -134,7 +153,7 @@ public final class NodeSchemaRegistry {
                     Kind kind = inferKind(value);
                     out.add(new FieldSpec(nodeId, node.optString("class_type", ""), key, kind,
                             false, false, isMultilineKey(key, new JSONObject()), value,
-                            new JSONArray(), new JSONObject()));
+                            new JSONArray(), new JSONObject(), "", -1));
                 }
             }
             return out;
@@ -156,17 +175,24 @@ public final class NodeSchemaRegistry {
             JSONArray options = typeRaw instanceof JSONArray ? (JSONArray) typeRaw : new JSONArray();
             Kind kind = kindOf(typeRaw, key, config);
             Object current = inputs.has(key) ? inputs.opt(key) : JSONObject.NULL;
-            boolean connected = isConnection(current);
+            JSONArray connection = connectionOf(current);
+            boolean connected = connection != null;
             Object value = connected ? JSONObject.NULL : current;
             if (value == JSONObject.NULL) value = schemaDefault(kind, options, config);
             boolean multiline = kind == Kind.STRING && isMultilineKey(key, config);
+            String sourceNodeId = connected ? String.valueOf(connection.opt(0)) : "";
+            int sourceOutputIndex = connected ? connection.optInt(1, -1) : -1;
             out.add(new FieldSpec(nodeId, node.optString("class_type", ""), key, kind,
-                    required, connected, multiline, value, cloneArray(options), cloneObject(config)));
+                    required, connected, multiline, value, cloneArray(options), cloneObject(config),
+                    sourceNodeId, sourceOutputIndex));
         }
     }
 
     private static Kind kindOf(Object typeRaw, String key, JSONObject config) {
-        if (typeRaw instanceof JSONArray) return Kind.COMBO;
+        if (typeRaw instanceof JSONArray) {
+            if (config != null && (config.optBoolean("image_upload", false) || config.optBoolean("upload", false))) return Kind.FILE;
+            return Kind.COMBO;
+        }
         String type = String.valueOf(typeRaw == null ? "" : typeRaw).toUpperCase(Locale.US);
         if ("STRING".equals(type)) {
             String lower = key == null ? "" : key.toLowerCase(Locale.US);
@@ -183,20 +209,20 @@ public final class NodeSchemaRegistry {
 
     private static Object schemaDefault(Kind kind, JSONArray options, JSONObject config) {
         if (config != null && config.has("default")) return config.opt("default");
-        if (kind == Kind.COMBO && options != null && options.length() > 0) return options.opt(0);
+        if ((kind == Kind.COMBO || kind == Kind.FILE) && options != null && options.length() > 0) return options.opt(0);
         if (kind == Kind.BOOLEAN) return false;
         if (kind == Kind.INTEGER) return 0;
         if (kind == Kind.FLOAT) return 0.0;
         return "";
     }
 
-    private static boolean isConnection(Object value) {
-        if (!(value instanceof JSONArray)) return false;
+    private static JSONArray connectionOf(Object value) {
+        if (!(value instanceof JSONArray)) return null;
         JSONArray array = (JSONArray) value;
-        if (array.length() < 2) return false;
+        if (array.length() < 2) return null;
         Object node = array.opt(0);
         Object slot = array.opt(1);
-        return (node instanceof String || node instanceof Number) && slot instanceof Number;
+        return (node instanceof String || node instanceof Number) && slot instanceof Number ? array : null;
     }
 
     private static boolean isMultilineKey(String key, JSONObject config) {

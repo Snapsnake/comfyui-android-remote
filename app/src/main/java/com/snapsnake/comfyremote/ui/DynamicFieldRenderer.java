@@ -6,6 +6,8 @@ import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
+import android.view.ViewParent;
 import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.EditText;
@@ -16,15 +18,17 @@ import android.widget.TextView;
 
 import com.snapsnake.comfyremote.core.NodeSchemaRegistry;
 
-import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
-import java.util.List;
 
 public final class DynamicFieldRenderer {
     public interface ChangeListener { void onChanged(); }
     public interface FileRequestListener { void onFileRequested(NodeSchemaRegistry.FieldSpec field); }
+    public interface ConnectionListener {
+        void onOpenSource(NodeSchemaRegistry.FieldSpec field);
+        void onDisconnect(NodeSchemaRegistry.FieldSpec field);
+    }
 
     private final Context context;
 
@@ -32,7 +36,13 @@ public final class DynamicFieldRenderer {
         this.context = context;
     }
 
-    public View render(NodeSchemaRegistry.FieldSpec field, JSONObject node, ChangeListener changes, FileRequestListener files) {
+    public View render(NodeSchemaRegistry.FieldSpec field, JSONObject node, ChangeListener changes,
+                       FileRequestListener files) {
+        return render(field, node, changes, files, null);
+    }
+
+    public View render(NodeSchemaRegistry.FieldSpec field, JSONObject node, ChangeListener changes,
+                       FileRequestListener files, ConnectionListener connections) {
         LinearLayout block = UiKit.column(context);
         block.setPadding(0, UiKit.dp(context, 6), 0, UiKit.dp(context, 8));
 
@@ -44,10 +54,7 @@ public final class DynamicFieldRenderer {
         block.addView(heading);
 
         if (field.connected) {
-            TextView connected = UiKit.muted(context, "Connected input — edit the upstream node", 12);
-            connected.setPadding(UiKit.dp(context, 12), UiKit.dp(context, 12), UiKit.dp(context, 12), UiKit.dp(context, 12));
-            connected.setBackground(UiKit.background(context, UiKit.SURFACE_2, 14, UiKit.STROKE, 2));
-            block.addView(connected, UiKit.match(context, -2, 6));
+            block.addView(connectedEditor(block, field, node, changes, files, connections), UiKit.match(context, -2, 6));
             return block;
         }
 
@@ -63,18 +70,69 @@ public final class DynamicFieldRenderer {
                 block.addView(numberEditor(field, node, changes), UiKit.match(context, 48, 6));
                 break;
             case FILE:
-                block.addView(textEditor(field, node, changes), UiKit.match(context, field.multiline ? 116 : 48, 6));
+                if (field.options.length() > 0) block.addView(comboEditor(field, node, changes), UiKit.match(context, 52, 6));
+                else block.addView(textEditor(field, node, changes), UiKit.match(context, field.multiline ? 116 : 48, 6));
                 if (files != null) {
                     block.addView(UiKit.button(context, "Choose file", false, v -> files.onFileRequested(field)), UiKit.match(context, 42, 8));
                 }
                 break;
             case STRING:
+                block.addView(textEditor(field, node, changes), UiKit.match(context, field.multiline ? 116 : 48, 6));
+                break;
             case UNKNOWN:
             default:
-                block.addView(textEditor(field, node, changes), UiKit.match(context, field.multiline ? 116 : 48, 6));
+                TextView socket = UiKit.muted(context, "Connection-only socket", 12);
+                socket.setPadding(UiKit.dp(context, 12), UiKit.dp(context, 12), UiKit.dp(context, 12), UiKit.dp(context, 12));
+                socket.setBackground(UiKit.background(context, UiKit.SURFACE_2, 14, UiKit.STROKE, 2));
+                block.addView(socket, UiKit.match(context, -2, 6));
                 break;
         }
         return block;
+    }
+
+    private View connectedEditor(LinearLayout block, NodeSchemaRegistry.FieldSpec field, JSONObject node,
+                                 ChangeListener changes, FileRequestListener files, ConnectionListener connections) {
+        LinearLayout card = UiKit.column(context);
+        card.setPadding(UiKit.dp(context, 12), UiKit.dp(context, 11), UiKit.dp(context, 12), UiKit.dp(context, 11));
+        card.setBackground(UiKit.background(context, UiKit.SURFACE_2, 14, UiKit.STROKE, 2));
+
+        card.addView(UiKit.title(context, "Connected from " + field.connectionSummary(), 13));
+        String explanation;
+        if (!field.canUseLocalValue()) explanation = "This socket must receive data from another node.";
+        else if (connections != null && !field.sourceNodeId.isEmpty()) explanation = "Open the source node, or disconnect this link to use a local value.";
+        else explanation = "Disconnect this link to replace it with a local editable value.";
+        card.addView(UiKit.muted(context, explanation, 12), UiKit.match(context, -2, 4));
+
+        LinearLayout actions = UiKit.row(context);
+        actions.setPadding(0, UiKit.dp(context, 8), 0, 0);
+        if (connections != null && !field.sourceNodeId.isEmpty()) {
+            actions.addView(UiKit.button(context, "Open source", false, v -> connections.onOpenSource(field)), UiKit.weighted(context, 40));
+        }
+        if (field.canUseLocalValue()) {
+            actions.addView(UiKit.button(context, "Disconnect & edit", true, v -> {
+                if (connections != null) {
+                    connections.onDisconnect(field);
+                    return;
+                }
+                put(node, field.key, field.value == JSONObject.NULL ? "" : field.value);
+                if (changes != null) changes.onChanged();
+                View replacement = render(field.disconnected(), node, changes, files, null);
+                replaceFieldView(block, replacement);
+            }), UiKit.weighted(context, 40));
+        }
+        if (actions.getChildCount() > 0) card.addView(actions);
+        return card;
+    }
+
+    private static void replaceFieldView(View oldView, View newView) {
+        ViewParent parent = oldView.getParent();
+        if (!(parent instanceof ViewGroup)) return;
+        ViewGroup group = (ViewGroup) parent;
+        int index = group.indexOfChild(oldView);
+        if (index < 0) return;
+        ViewGroup.LayoutParams params = oldView.getLayoutParams();
+        group.removeViewAt(index);
+        group.addView(newView, index, params);
     }
 
     private View booleanEditor(NodeSchemaRegistry.FieldSpec field, JSONObject node, ChangeListener changes) {
