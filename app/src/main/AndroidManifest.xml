@@ -16,6 +16,12 @@
             android:grantUriPermissions="true" />
 
         <activity
+            android:name=".WorkflowFilesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".OutputViewerActivity"
             android:exported="true"
             android:screenOrientation="portrait"

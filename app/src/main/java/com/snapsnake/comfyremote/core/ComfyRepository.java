@@ -9,10 +9,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
+import java.util.Map;
 
 public final class ComfyRepository {
     private final ComfyStore store;
@@ -150,13 +149,26 @@ public final class ComfyRepository {
         store.saveCurrentWorkflow(currentWorkflow);
     }
 
+    public List<WorkflowPreflight.Issue> workflowIssues() {
+        return WorkflowPreflight.validate(currentWorkflow, schemaRegistry());
+    }
+
+    public List<WorkflowFileRequirement> workflowFiles() {
+        return WorkflowFileRequirement.discover(currentWorkflow, schemaRegistry());
+    }
+
     public synchronized String queueCurrentWorkflow(String clientId) throws Exception {
         WorkflowDocument document = currentWorkflow;
         if (document == null || document.isEmpty()) throw new IllegalStateException("No workflow loaded");
         if (objectInfo != null && objectInfo.length() > 0) document = repairPreservingUploadValues(document);
         currentWorkflow = document;
         materialize(document);
-        validateInputImages(document);
+
+        NodeSchemaRegistry registry = new NodeSchemaRegistry(objectInfo);
+        List<WorkflowPreflight.Issue> issues = WorkflowPreflight.validate(document, registry);
+        if (!issues.isEmpty()) throw new WorkflowPreflightException(issues);
+        validateInputFiles(document, registry);
+
         store.saveCurrentWorkflow(document);
         JSONObject result = client.prompt(document.apiPrompt(), clientId);
         String promptId = result.optString("prompt_id", "");
@@ -256,7 +268,8 @@ public final class ComfyRepository {
                     targetNode.put("inputs", targetInputs);
                 }
                 for (NodeSchemaRegistry.FieldSpec field : registry.fieldsForNode(id, sourceNode)) {
-                    if (!isServerUploadField(sourceNode, field) || !sourceInputs.has(field.key)) continue;
+                    if (!WorkflowFileRequirement.isInputFileField(sourceNode.optString("class_type", ""), field)
+                            || !sourceInputs.has(field.key)) continue;
                     Object value = sourceInputs.opt(field.key);
                     if (value instanceof String && !String.valueOf(value).trim().isEmpty()) {
                         targetInputs.put(field.key, value);
@@ -266,41 +279,24 @@ public final class ComfyRepository {
         }
     }
 
-    private void validateInputImages(WorkflowDocument document) throws Exception {
-        JSONObject prompt = document == null ? null : document.apiPrompt();
-        if (prompt == null) return;
-        NodeSchemaRegistry registry = new NodeSchemaRegistry(objectInfo);
-        Set<String> checked = new LinkedHashSet<>();
-        Iterator<String> ids = prompt.keys();
-        while (ids.hasNext()) {
-            String id = ids.next();
-            JSONObject node = prompt.optJSONObject(id);
-            if (node == null) continue;
-            JSONObject inputs = node.optJSONObject("inputs");
-            if (inputs == null) continue;
-            for (NodeSchemaRegistry.FieldSpec field : registry.fieldsForNode(id, node)) {
-                if (!isServerUploadField(node, field) || field.connected) continue;
-                Object raw = inputs.opt(field.key);
-                if (!(raw instanceof String) || String.valueOf(raw).trim().isEmpty()) {
-                    throw new IllegalStateException("Choose an input image for node #" + id + " (" + field.key + ")");
-                }
-                String value = String.valueOf(raw).trim();
-                if (!checked.add(value)) continue;
-                if (!client.inputImageExists(value)) {
-                    throw new IllegalStateException("Input image is not available in ComfyUI: " + value + " · choose the file again in node #" + id);
-                }
+    private void validateInputFiles(WorkflowDocument document, NodeSchemaRegistry registry) throws Exception {
+        List<WorkflowFileRequirement> requirements = WorkflowFileRequirement.discover(document, registry);
+        ArrayList<WorkflowFileRequirement> missing = new ArrayList<>();
+        Map<String, Boolean> checked = new LinkedHashMap<>();
+        for (WorkflowFileRequirement file : requirements) {
+            String value = file.value.trim();
+            if (value.isEmpty()) {
+                missing.add(file);
+                continue;
             }
+            Boolean exists = checked.get(value);
+            if (exists == null) {
+                exists = client.inputFileExists(value);
+                checked.put(value, exists);
+            }
+            if (!exists) missing.add(file);
         }
-    }
-
-    private boolean isServerUploadField(JSONObject node, NodeSchemaRegistry.FieldSpec field) {
-        if (field == null) return false;
-        if (field.config.optBoolean("image_upload", false) || field.config.optBoolean("upload", false)) return true;
-        String classType = node == null ? "" : node.optString("class_type", "").toLowerCase(Locale.US);
-        String key = field.key == null ? "" : field.key.toLowerCase(Locale.US);
-        int dot = key.lastIndexOf('.');
-        if (dot >= 0) key = key.substring(dot + 1);
-        return classType.contains("loadimage") && ("image".equals(key) || "mask".equals(key));
+        if (!missing.isEmpty()) throw new MissingInputFilesException(missing);
     }
 
     private int materialize(WorkflowDocument document) {
