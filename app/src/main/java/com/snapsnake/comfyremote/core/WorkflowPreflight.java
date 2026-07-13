@@ -75,7 +75,6 @@ public final class WorkflowPreflight {
             case BOOLEAN:
                 return value instanceof Boolean ? "" : "expected true/false, got " + typeName(value);
             case COMBO:
-            case FILE:
                 if (value instanceof JSONObject || value instanceof JSONArray) {
                     return "expected a selectable value, got " + typeName(value);
                 }
@@ -83,6 +82,14 @@ public final class WorkflowPreflight {
                     return "value '" + String.valueOf(value) + "' is not available in the server schema";
                 }
                 if (field.required && String.valueOf(value).trim().isEmpty()) return "value is empty";
+                return "";
+            case FILE:
+                if (value instanceof JSONObject || value instanceof JSONArray) {
+                    return "expected a file name, got " + typeName(value);
+                }
+                // File option lists are snapshots of input/ and can be stale immediately
+                // after an upload. Existence is verified against /view separately.
+                if (field.required && String.valueOf(value).trim().isEmpty()) return "file is not selected";
                 return "";
             case STRING:
                 return value instanceof String ? "" : "expected text, got " + typeName(value);
