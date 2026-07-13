@@ -1,11 +1,16 @@
 package com.snapsnake.comfyremote.ui;
 
 import android.content.Context;
+import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.text.TextUtils;
 import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -13,6 +18,7 @@ import android.widget.LinearLayout;
 import android.widget.TextView;
 
 import com.snapsnake.comfyremote.WorkflowExportActivity;
+import com.snapsnake.comfyremote.WorkflowFilesActivity;
 
 public final class UiKit {
     public static final int BG = Color.rgb(17, 17, 18);
@@ -38,6 +44,17 @@ public final class UiKit {
         return d;
     }
 
+    private static RippleDrawable ripple(Context c, GradientDrawable content, int radiusDp) {
+        GradientDrawable mask = new GradientDrawable();
+        mask.setColor(Color.WHITE);
+        mask.setCornerRadius(dp(c, radiusDp));
+        return new RippleDrawable(
+                ColorStateList.valueOf(Color.argb(65, 255, 255, 255)),
+                content,
+                mask
+        );
+    }
+
     public static LinearLayout column(Context c) {
         LinearLayout v = new LinearLayout(c);
         v.setOrientation(LinearLayout.VERTICAL);
@@ -51,10 +68,14 @@ public final class UiKit {
     }
 
     public static LinearLayout card(Context c, boolean accent) {
-        LinearLayout v = new ExportAwareCard(c);
+        LinearLayout v = new WorkflowAwareCard(c);
         v.setOrientation(LinearLayout.VERTICAL);
         v.setPadding(dp(c, 14), dp(c, 14), dp(c, 14), dp(c, 14));
         v.setBackground(background(c, SURFACE, 18, accent ? ACCENT : STROKE, 2));
+        GradientDrawable mask = background(c, Color.WHITE, 18, Color.TRANSPARENT, 0);
+        v.setForeground(new RippleDrawable(
+                ColorStateList.valueOf(Color.argb(48, 255, 255, 255)), null, mask));
+        enablePressAnimation(v);
         return v;
     }
 
@@ -110,15 +131,38 @@ public final class UiKit {
         b.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
         b.setTextColor(primary ? ACCENT : TEXT);
         b.setPadding(dp(c, 7), 0, dp(c, 7), 0);
-        b.setBackground(background(c, primary ? Color.rgb(49, 37, 25) : SURFACE_2, 14, primary ? ACCENT : STROKE, 2));
+        GradientDrawable content = background(c,
+                primary ? Color.rgb(49, 37, 25) : SURFACE_2,
+                14, primary ? ACCENT : STROKE, 2);
+        b.setBackground(ripple(c, content, 14));
+        enablePressAnimation(b);
+
+        View.OnClickListener wrapped = v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            if (listener != null) listener.onClick(v);
+        };
         if ("Back".equals(label)) {
             b.setOnClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
                 if (!NodeNavigationBridge.goBack(c) && listener != null) listener.onClick(v);
             });
         } else {
-            b.setOnClickListener(listener);
+            b.setOnClickListener(wrapped);
         }
         return b;
+    }
+
+    public static void enablePressAnimation(View view) {
+        if (view == null) return;
+        view.setOnTouchListener((v, event) -> {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) {
+                v.animate().scaleX(0.975f).scaleY(0.975f).setDuration(70).start();
+            } else if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                v.animate().scaleX(1f).scaleY(1f).setDuration(110).start();
+            }
+            return false;
+        });
     }
 
     public static LinearLayout.LayoutParams section(Context c) {
@@ -152,20 +196,25 @@ public final class UiKit {
         return t;
     }
 
-    /** Adds the export action only to the workflow card, without coupling the activity to storage code. */
-    private static final class ExportAwareCard extends LinearLayout {
-        private boolean exportAdded;
+    /** Adds workflow-specific actions without coupling the main activity to every tool screen. */
+    private static final class WorkflowAwareCard extends LinearLayout {
+        private boolean workflowToolsAdded;
 
-        ExportAwareCard(Context context) {
+        WorkflowAwareCard(Context context) {
             super(context);
         }
 
         @Override public void onViewAdded(View child) {
             super.onViewAdded(child);
-            if (exportAdded || !(child instanceof Button)) return;
+            if (workflowToolsAdded || !(child instanceof Button)) return;
             CharSequence text = ((Button) child).getText();
             if (!"Save to local workflow library".contentEquals(text == null ? "" : text)) return;
-            exportAdded = true;
+            workflowToolsAdded = true;
+
+            Button check = UiKit.button(getContext(), "Check workflow and missing files", false,
+                    v -> getContext().startActivity(new Intent(getContext(), WorkflowFilesActivity.class)));
+            addView(check, UiKit.match(getContext(), 42, 9));
+
             Button export = UiKit.button(getContext(), "Export workflow to folder", false,
                     v -> WorkflowExportActivity.launch(getContext()));
             addView(export, UiKit.match(getContext(), 42, 9));
