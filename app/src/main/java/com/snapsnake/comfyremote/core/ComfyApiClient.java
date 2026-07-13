@@ -111,9 +111,23 @@ public final class ComfyApiClient {
     }
 
     public JSONObject uploadImage(byte[] bytes, String filename, boolean overwrite) throws Exception {
-        if (bytes == null || bytes.length == 0) throw new IOException("Selected image is empty");
-        String uploadName = InputImageUpload.normalizeFilename(filename, bytes);
-        MediaType mediaType = MediaType.parse(InputImageUpload.mediaType(bytes, uploadName));
+        String mime = InputImageUpload.mediaType(bytes, filename);
+        return uploadInputFile(bytes, filename, mime, overwrite);
+    }
+
+    /**
+     * ComfyUI's /upload/image endpoint writes arbitrary multipart files into
+     * input/. Despite the historical route name, this is also how official
+     * input widgets persist audio, video and other user-selected files.
+     */
+    public JSONObject uploadInputFile(byte[] bytes, String filename, String preferredMime,
+                                      boolean overwrite) throws Exception {
+        if (bytes == null || bytes.length == 0) throw new IOException("Selected file is empty");
+        String uploadName = InputFileUpload.normalizeFilename(filename, bytes, preferredMime);
+        String mime = InputFileUpload.mediaType(bytes, uploadName, preferredMime);
+        MediaType mediaType = MediaType.parse(mime);
+        if (mediaType == null) mediaType = MediaType.parse("application/octet-stream");
+
         MultipartBody body = new MultipartBody.Builder()
                 .setType(MultipartBody.FORM)
                 .addFormDataPart("image", uploadName, RequestBody.create(bytes, mediaType))
@@ -127,19 +141,26 @@ public final class ComfyApiClient {
         InputImageUpload.Ref uploaded = InputImageUpload.fromUploadResponse(response, uploadName);
         if (uploaded.filename.isEmpty()) throw new IOException("ComfyUI did not return the uploaded filename");
         String returnedType = response.optString("type", "input");
-        if (!"input".equals(returnedType)) throw new IOException("ComfyUI saved the file as type " + returnedType + " instead of input");
-        if (!inputImageExists(uploaded.workflowValue())) {
+        if (!"input".equals(returnedType)) {
+            throw new IOException("ComfyUI saved the file as type " + returnedType + " instead of input");
+        }
+        if (!inputFileExists(uploaded.workflowValue())) {
             throw new IOException("Upload was acknowledged, but ComfyUI cannot read input/" + uploaded.workflowValue());
         }
 
         response.put("name", uploaded.filename);
         response.put("subfolder", uploaded.subfolder);
         response.put("type", "input");
+        response.put("mime_type", mime);
         response.put("workflow_value", uploaded.workflowValue());
         return response;
     }
 
     public boolean inputImageExists(String workflowValue) throws Exception {
+        return inputFileExists(workflowValue);
+    }
+
+    public boolean inputFileExists(String workflowValue) throws Exception {
         InputImageUpload.Ref ref = InputImageUpload.parseWorkflowValue(workflowValue);
         if (ref.filename.isEmpty()) return false;
         return requestExists(outputPath(ref.filename, ref.subfolder, "input"));
