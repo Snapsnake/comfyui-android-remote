@@ -24,7 +24,6 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -101,6 +100,27 @@ public final class WorkflowFilesActivity extends Activity {
             schemaIssues = new ArrayList<>();
             statusText.setText("No workflow is loaded.");
             renderResults();
+            return;
+        }
+
+        if (repository.objectInfo() == null || repository.objectInfo().length() == 0) {
+            busy = true;
+            statusText.setText("Loading the current ComfyUI node schema…");
+            io.execute(() -> {
+                try {
+                    repository.connectAndRefreshSchema();
+                    runOnUiThread(() -> {
+                        busy = false;
+                        scan();
+                    });
+                } catch (Exception e) {
+                    runOnUiThread(() -> {
+                        busy = false;
+                        statusText.setText("Could not load /object_info: " + friendly(e));
+                        renderResults();
+                    });
+                }
+            });
             return;
         }
 
