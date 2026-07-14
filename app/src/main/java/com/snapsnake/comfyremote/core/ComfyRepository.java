@@ -18,6 +18,7 @@ public final class ComfyRepository {
     private final ComfyApiClient client;
     private volatile JSONObject objectInfo;
     private volatile WorkflowDocument currentWorkflow;
+    private volatile List<WorkflowPreflight.Issue> lastQueueWarnings = Collections.emptyList();
 
     public ComfyRepository(ComfyStore store, ServerProfile profile) {
         this.store = store;
@@ -33,6 +34,7 @@ public final class ComfyRepository {
     public JSONObject objectInfo() { return objectInfo; }
     public WorkflowDocument currentWorkflow() { return currentWorkflow; }
     public NodeSchemaRegistry schemaRegistry() { return new NodeSchemaRegistry(objectInfo); }
+    public List<WorkflowPreflight.Issue> lastQueueWarnings() { return new ArrayList<>(lastQueueWarnings); }
 
     public synchronized void setProfile(ServerProfile profile) {
         store.saveActiveProfile(profile);
@@ -41,14 +43,24 @@ public final class ComfyRepository {
 
     public JSONObject connectAndRefreshSchema() throws Exception {
         JSONObject stats = client.systemStats();
-        JSONObject latestObjectInfo = client.objectInfo();
-        objectInfo = latestObjectInfo;
-        store.saveObjectInfo(latestObjectInfo);
+        refreshNodeDefinitions();
         normalizeCurrentWorkflow();
         ServerProfile resolved = profile().withResolvedBaseUrl(client.resolvedBaseUrl());
         store.saveActiveProfile(resolved);
         client.setProfile(resolved);
         return stats;
+    }
+
+    /**
+     * Always fetches a fresh /api/object_info snapshot from the current server.
+     * The new snapshot replaces both in-memory and persisted model/COMBO lists.
+     * The editable prompt is intentionally not rewritten here.
+     */
+    public synchronized JSONObject refreshNodeDefinitions() throws Exception {
+        JSONObject latestObjectInfo = client.objectInfo();
+        objectInfo = latestObjectInfo == null ? new JSONObject() : latestObjectInfo;
+        store.saveObjectInfo(objectInfo);
+        return objectInfo;
     }
 
     public List<TemplateDescriptor> cachedTemplates() {
@@ -143,7 +155,7 @@ public final class ComfyRepository {
 
     public synchronized void setCurrentWorkflow(WorkflowDocument document) {
         WorkflowDocument next = document == null ? WorkflowDocument.empty() : document;
-        if (objectInfo != null && objectInfo.length() > 0 && !next.isEmpty()) next = repairPreservingUploadValues(next);
+        if (objectInfo != null && objectInfo.length() > 0 && !next.isEmpty()) next = repairPreservingServerValues(next);
         currentWorkflow = next;
         materialize(currentWorkflow);
         store.saveCurrentWorkflow(currentWorkflow);
@@ -160,20 +172,41 @@ public final class ComfyRepository {
     public synchronized String queueCurrentWorkflow(String clientId) throws Exception {
         WorkflowDocument document = currentWorkflow;
         if (document == null || document.isEmpty()) throw new IllegalStateException("No workflow loaded");
-        if (objectInfo != null && objectInfo.length() > 0) document = repairPreservingUploadValues(document);
+
+        ArrayList<WorkflowPreflight.Issue> warnings = new ArrayList<>();
+        try {
+            // Model and COMBO lists can change after the desktop server restarts.
+            // Refresh them before any local validation so Queue never relies only on cache.
+            refreshNodeDefinitions();
+        } catch (Exception refreshFailure) {
+            warnings.add(WorkflowPreflight.Issue.warning(
+                    "", "Node definitions", "/api/object_info",
+                    "could not refresh model lists; continuing with the cached schema: "
+                            + shortMessage(refreshFailure),
+                    WorkflowPreflight.CODE_SCHEMA_REFRESH
+            ));
+        }
+
+        if (objectInfo != null && objectInfo.length() > 0) document = repairPreservingServerValues(document);
         currentWorkflow = document;
         materialize(document);
 
         NodeSchemaRegistry registry = new NodeSchemaRegistry(objectInfo);
         List<WorkflowPreflight.Issue> issues = WorkflowPreflight.validate(document, registry);
-        if (!issues.isEmpty()) throw new WorkflowPreflightException(issues);
+        List<WorkflowPreflight.Issue> blocking = WorkflowPreflight.blockingIssues(issues);
+        warnings.addAll(WorkflowPreflight.warnings(issues));
+        if (!blocking.isEmpty()) {
+            lastQueueWarnings = Collections.unmodifiableList(new ArrayList<>(warnings));
+            throw new WorkflowPreflightException(blocking);
+        }
         validateInputFiles(document, registry);
 
         store.saveCurrentWorkflow(document);
         JSONObject result = client.prompt(document.apiPrompt(), clientId);
         String promptId = result.optString("prompt_id", "");
         if (promptId.isEmpty()) throw new IllegalStateException("ComfyUI did not return prompt_id");
-        return promptId;
+        lastQueueWarnings = Collections.unmodifiableList(new ArrayList<>(warnings));
+        return queueDisplayText(promptId, warnings);
     }
 
     public JSONObject queue() throws Exception { return client.queue(); }
@@ -237,16 +270,17 @@ public final class ComfyRepository {
     private synchronized void normalizeCurrentWorkflow() {
         WorkflowDocument document = currentWorkflow;
         if (document == null || document.isEmpty()) return;
-        if (objectInfo != null && objectInfo.length() > 0) document = repairPreservingUploadValues(document);
+        if (objectInfo != null && objectInfo.length() > 0) document = repairPreservingServerValues(document);
         currentWorkflow = document;
         materialize(document);
         store.saveCurrentWorkflow(document);
     }
 
-    private WorkflowDocument repairPreservingUploadValues(WorkflowDocument document) {
+    private WorkflowDocument repairPreservingServerValues(WorkflowDocument document) {
         JSONObject before = document.apiPromptCopy();
         WorkflowDocument repaired = document.repaired(objectInfo);
         reapplyUploadValues(before, repaired.apiPrompt());
+        reapplySelectableStringValues(before, repaired.apiPrompt());
         return repaired;
     }
 
@@ -270,6 +304,41 @@ public final class ComfyRepository {
                 for (NodeSchemaRegistry.FieldSpec field : registry.fieldsForNode(id, sourceNode)) {
                     if (!WorkflowFileRequirement.isInputFileField(sourceNode.optString("class_type", ""), field)
                             || !sourceInputs.has(field.key)) continue;
+                    Object value = sourceInputs.opt(field.key);
+                    if (value instanceof String && !String.valueOf(value).trim().isEmpty()) {
+                        targetInputs.put(field.key, value);
+                    }
+                }
+            } catch (Exception ignored) {}
+        }
+    }
+
+    /**
+     * Preserve user-selected string values for COMBO fields even when they are
+     * absent from a cached list. This is required for newly installed models:
+     * the server remains the final authority and may accept values unknown to
+     * an older object_info snapshot.
+     */
+    private void reapplySelectableStringValues(JSONObject before, JSONObject after) {
+        if (before == null || after == null) return;
+        NodeSchemaRegistry registry = new NodeSchemaRegistry(objectInfo);
+        Iterator<String> ids = before.keys();
+        while (ids.hasNext()) {
+            String id = ids.next();
+            JSONObject sourceNode = before.optJSONObject(id);
+            JSONObject targetNode = after.optJSONObject(id);
+            if (sourceNode == null || targetNode == null) continue;
+            JSONObject sourceInputs = sourceNode.optJSONObject("inputs");
+            if (sourceInputs == null) continue;
+            JSONObject targetInputs = targetNode.optJSONObject("inputs");
+            try {
+                if (targetInputs == null) {
+                    targetInputs = new JSONObject();
+                    targetNode.put("inputs", targetInputs);
+                }
+                for (NodeSchemaRegistry.FieldSpec field : registry.fieldsForNode(id, sourceNode)) {
+                    if (field.connected || (field.kind != NodeSchemaRegistry.Kind.COMBO
+                            && field.kind != NodeSchemaRegistry.Kind.FILE)) continue;
                     Object value = sourceInputs.opt(field.key);
                     if (value instanceof String && !String.valueOf(value).trim().isEmpty()) {
                         targetInputs.put(field.key, value);
@@ -349,6 +418,24 @@ public final class ComfyRepository {
         if (lower.endsWith(".mp4") || lower.endsWith(".webm") || lower.endsWith(".mov") || lower.endsWith(".mkv")) return OutputAsset.Kind.VIDEO;
         if (lower.endsWith(".wav") || lower.endsWith(".mp3") || lower.endsWith(".flac") || lower.endsWith(".ogg") || lower.endsWith(".m4a")) return OutputAsset.Kind.AUDIO;
         return OutputAsset.Kind.FILE;
+    }
+
+    private static String queueDisplayText(String promptId, List<WorkflowPreflight.Issue> warnings) {
+        if (warnings == null || warnings.isEmpty()) return promptId;
+        WorkflowPreflight.Issue firstWarning = warnings.get(0);
+        String summary = firstWarning == null ? "server validation warning" : firstWarning.summary();
+        if (summary.length() > 145) summary = summary.substring(0, 144) + "…";
+        return promptId + " · warning: " + summary
+                + (warnings.size() > 1 ? " · +" + (warnings.size() - 1) + " more" : "");
+    }
+
+    private static String shortMessage(Exception error) {
+        String message = error == null ? "unknown error" : error.getMessage();
+        if (message == null || message.trim().isEmpty()) {
+            message = error == null ? "unknown error" : error.getClass().getSimpleName();
+        }
+        message = message.replace('\n', ' ').trim();
+        return message.length() <= 150 ? message : message.substring(0, 149) + "…";
     }
 
     private static String extension(String path) {
