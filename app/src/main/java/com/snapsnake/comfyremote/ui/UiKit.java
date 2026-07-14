@@ -17,6 +17,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
+import com.snapsnake.comfyremote.RefreshNodeDefinitionsActivity;
 import com.snapsnake.comfyremote.WorkflowExportActivity;
 import com.snapsnake.comfyremote.WorkflowFilesActivity;
 
@@ -196,9 +197,10 @@ public final class UiKit {
         return t;
     }
 
-    /** Adds workflow-specific actions without coupling the main activity to every tool screen. */
+    /** Adds workflow and connection actions without coupling the main activity to tool screens. */
     private static final class WorkflowAwareCard extends LinearLayout {
         private boolean workflowToolsAdded;
+        private boolean schemaRefreshAdded;
 
         WorkflowAwareCard(Context context) {
             super(context);
@@ -206,9 +208,21 @@ public final class UiKit {
 
         @Override public void onViewAdded(View child) {
             super.onViewAdded(child);
-            if (workflowToolsAdded || !(child instanceof Button)) return;
-            CharSequence text = ((Button) child).getText();
-            if (!"Save to local workflow library".contentEquals(text == null ? "" : text)) return;
+            if (!(child instanceof Button)) return;
+            CharSequence raw = ((Button) child).getText();
+            String text = raw == null ? "" : raw.toString();
+
+            if (!schemaRefreshAdded && "Edit connection".equals(text)) {
+                schemaRefreshAdded = true;
+                Button refresh = UiKit.button(getContext(),
+                        "Refresh node definitions / model lists", false,
+                        v -> getContext().startActivity(
+                                new Intent(getContext(), RefreshNodeDefinitionsActivity.class)));
+                addView(refresh, UiKit.match(getContext(), 44, 9));
+                return;
+            }
+
+            if (workflowToolsAdded || !"Save to local workflow library".equals(text)) return;
             workflowToolsAdded = true;
 
             Button check = UiKit.button(getContext(), "Check workflow and missing files", false,
