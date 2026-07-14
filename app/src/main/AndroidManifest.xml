@@ -16,6 +16,12 @@
             android:grantUriPermissions="true" />
 
         <activity
+            android:name=".RefreshNodeDefinitionsActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@style/AppTheme" />
+
+        <activity
             android:name=".WorkflowFilesActivity"
             android:exported="false"
             android:screenOrientation="portrait"
